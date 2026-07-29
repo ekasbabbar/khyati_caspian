@@ -1,11 +1,10 @@
-# IntentFlow
+# Khyati
 
-IntentFlow is an AI customer success agent that reasons over user activity events and decides whether to proactively contact users. Communication will be delivered through [Caspian](https://github.com/TryCaspian/caspian-sdk) in a later iteration.
+Khyati is an AI customer success agent that reasons over user activity events and decides whether to proactively contact users. Communication will be delivered through [Caspian](https://github.com/TryCaspian/caspian-sdk) in a later iteration.
 
 ## Project structure
 
 ```
-intentflow/
 ├── app.py              # Entry point
 ├── config.py           # Environment-based settings
 ├── models.py           # Pydantic domain models
@@ -28,7 +27,6 @@ intentflow/
 ## Setup
 
 ```bash
-cd intentflow
 python -m venv .venv
 
 # Windows

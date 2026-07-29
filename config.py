@@ -4,7 +4,7 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Project root is the intentflow/ package directory.
+# Project root is the repository directory.
 PACKAGE_ROOT: Path = Path(__file__).resolve().parent
 DATA_DIR: Path = PACKAGE_ROOT / "data"
 PROMPTS_DIR: Path = PACKAGE_ROOT / "prompts"
@@ -12,7 +12,7 @@ DEFAULT_EVENTS_PATH: Path = DATA_DIR / "sample_events.json"
 
 
 class Settings(BaseSettings):
-    """Runtime settings for IntentFlow."""
+    """Runtime settings for Khyati."""
 
     model_config = SettingsConfigDict(
         env_file=".env",

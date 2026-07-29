@@ -4,7 +4,7 @@ import logging
 import sys
 
 
-def setup_logger(name: str = "intentflow", level: str = "INFO") -> logging.Logger:
+def setup_logger(name: str = "khyati", level: str = "INFO") -> logging.Logger:
     """Configure and return a named logger with a consistent format."""
     logger = logging.getLogger(name)
 

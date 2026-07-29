@@ -1,4 +1,4 @@
-"""Domain models for IntentFlow."""
+"""Domain models for Khyati."""
 
 from datetime import datetime
 from enum import StrEnum

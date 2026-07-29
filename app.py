@@ -1,4 +1,4 @@
-"""IntentFlow entry point."""
+"""Khyati entry point."""
 
 from config import get_settings
 from event_store import EventStore
