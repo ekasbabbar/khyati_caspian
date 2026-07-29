@@ -1,0 +1,83 @@
+{
+  "customers": [
+    {
+      "id": "cust_001",
+      "name": "Alice Chen",
+      "email": "alice@example.com",
+      "plan": "pro",
+      "created_at": "2026-07-01T09:00:00Z"
+    },
+    {
+      "id": "cust_002",
+      "name": "Bob Martinez",
+      "email": "bob@example.com",
+      "plan": "free",
+      "created_at": "2026-07-15T14:30:00Z"
+    },
+    {
+      "id": "cust_003",
+      "name": "Carol Nguyen",
+      "email": "carol@example.com",
+      "plan": "pro",
+      "created_at": "2026-06-20T11:00:00Z"
+    }
+  ],
+  "events": [
+    {
+      "id": "evt_001",
+      "customer_id": "cust_001",
+      "event_type": "signup",
+      "timestamp": "2026-07-01T09:00:00Z",
+      "metadata": {"source": "organic"}
+    },
+    {
+      "id": "evt_002",
+      "customer_id": "cust_001",
+      "event_type": "feature_used",
+      "timestamp": "2026-07-02T10:15:00Z",
+      "metadata": {"feature": "dashboard", "duration_seconds": 420}
+    },
+    {
+      "id": "evt_003",
+      "customer_id": "cust_001",
+      "event_type": "subscription_created",
+      "timestamp": "2026-07-05T16:00:00Z",
+      "metadata": {"plan": "pro", "amount_usd": 29}
+    },
+    {
+      "id": "evt_004",
+      "customer_id": "cust_002",
+      "event_type": "signup",
+      "timestamp": "2026-07-15T14:30:00Z",
+      "metadata": {"source": "referral"}
+    },
+    {
+      "id": "evt_005",
+      "customer_id": "cust_002",
+      "event_type": "login",
+      "timestamp": "2026-07-16T08:00:00Z",
+      "metadata": {}
+    },
+    {
+      "id": "evt_006",
+      "customer_id": "cust_002",
+      "event_type": "inactivity",
+      "timestamp": "2026-07-25T00:00:00Z",
+      "metadata": {"days_inactive": 9}
+    },
+    {
+      "id": "evt_007",
+      "customer_id": "cust_003",
+      "event_type": "support_ticket",
+      "timestamp": "2026-07-28T13:45:00Z",
+      "metadata": {"subject": "Billing question", "priority": "high"}
+    },
+    {
+      "id": "evt_008",
+      "customer_id": "cust_003",
+      "event_type": "subscription_cancelled",
+      "timestamp": "2026-07-29T09:30:00Z",
+      "metadata": {"reason": "too_expensive", "plan": "pro"}
+    }
+  ]
+}
