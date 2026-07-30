@@ -19,7 +19,8 @@ class IntentAgent:
                 should_contact=True,
                 confidence=0.97,
                 reason="Payment failed — customer may need help completing checkout.",
-                objective="Resolve payment issue",
+                action="resolve_payment_issue",
+                objective="Help the customer complete their payment",
                 recommended_channel="email",
             )
 
@@ -29,7 +30,8 @@ class IntentAgent:
                 should_contact=True,
                 confidence=0.88,
                 reason="Customer has been inactive for 14 days.",
-                objective="Re-engage customer",
+                action="reengage_customer",
+                objective="Help the customer resume their progress",
                 recommended_channel="email",
             )
 
@@ -39,7 +41,8 @@ class IntentAgent:
                 should_contact=True,
                 confidence=0.91,
                 reason="User has repeatedly viewed pricing, showing sustained purchase intent.",
-                objective="Offer plan guidance",
+                action="offer_plan_guidance",
+                objective="Help the customer choose the right plan",
                 recommended_channel="email",
             )
 
@@ -50,7 +53,8 @@ class IntentAgent:
                 should_contact=True,
                 confidence=0.82,
                 reason="User appears to be evaluating paid plans after collaborating with teammates.",
-                objective="Offer Pro plan",
+                action="offer_pro_plan",
+                objective="Help the customer evaluate the Pro plan",
                 recommended_channel="email",
             )
 
@@ -60,14 +64,10 @@ class IntentAgent:
                 should_contact=False,
                 confidence=0.93,
                 reason="Customer just signed up — give them space to explore.",
-                objective="",
-                recommended_channel="",
             )
 
         return IntentDecision(
             should_contact=False,
             confidence=0.60,
             reason="No outreach triggers detected.",
-            objective="",
-            recommended_channel="",
         )

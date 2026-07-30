@@ -35,24 +35,24 @@ class IntentAgentTests(unittest.TestCase):
             customer_with("pricing_page", "pricing_page", "pricing_page")
         )
         self.assertTrue(decision.should_contact)
-        self.assertEqual(decision.objective, "Offer plan guidance")
+        self.assertEqual(decision.action, "offer_plan_guidance")
 
     def test_payment_failure_triggers_immediate_help(self) -> None:
         decision = self.agent.analyze(customer_with("payment_failed"))
         self.assertTrue(decision.should_contact)
-        self.assertEqual(decision.objective, "Resolve payment issue")
+        self.assertEqual(decision.action, "resolve_payment_issue")
 
     def test_inactivity_triggers_reengagement(self) -> None:
         decision = self.agent.analyze(customer_with("inactive_14_days"))
         self.assertTrue(decision.should_contact)
-        self.assertEqual(decision.objective, "Re-engage customer")
+        self.assertEqual(decision.action, "reengage_customer")
 
     def test_teammate_invitation_and_pricing_trigger_upsell(self) -> None:
         decision = self.agent.analyze(
             customer_with("invited_teammate", "pricing_page")
         )
         self.assertTrue(decision.should_contact)
-        self.assertEqual(decision.objective, "Offer Pro plan")
+        self.assertEqual(decision.action, "offer_pro_plan")
 
     def test_higher_priority_payment_rule_wins(self) -> None:
         decision = self.agent.analyze(
@@ -64,7 +64,13 @@ class IntentAgentTests(unittest.TestCase):
                 "payment_failed",
             )
         )
-        self.assertEqual(decision.objective, "Resolve payment issue")
+        self.assertEqual(decision.action, "resolve_payment_issue")
+
+    def test_no_contact_decision_has_no_outreach_details(self) -> None:
+        decision = self.agent.analyze(customer_with("signup"))
+        self.assertIsNone(decision.action)
+        self.assertIsNone(decision.objective)
+        self.assertIsNone(decision.recommended_channel)
 
     def test_confidence_must_be_between_zero_and_one(self) -> None:
         with self.assertRaises(ValidationError):
@@ -72,8 +78,6 @@ class IntentAgentTests(unittest.TestCase):
                 should_contact=True,
                 confidence=1.1,
                 reason="Invalid confidence",
-                objective="Test",
-                recommended_channel="email",
             )
 
 

@@ -12,22 +12,22 @@ class MessagingAgent:
             return ""
 
         templates: dict[str, str] = {
-            "Offer Pro plan": (
+            "offer_pro_plan": (
                 f"Hi {customer.name},\n\n"
                 "Looks like your team is growing.\n\n"
                 "If you'd like, I'd be happy to explain how the Pro plan could help."
             ),
-            "Resolve payment issue": (
+            "resolve_payment_issue": (
                 f"Hi {customer.name},\n\n"
                 "It looks like your recent payment didn't go through.\n\n"
                 "I'm here to help if you'd like assistance completing checkout."
             ),
-            "Re-engage customer": (
+            "reengage_customer": (
                 f"Hi {customer.name},\n\n"
                 "We noticed you haven't been around lately.\n\n"
                 "If anything blocked you from getting started, I'm happy to help."
             ),
-            "Offer plan guidance": (
+            "offer_plan_guidance": (
                 f"Hi {customer.name},\n\n"
                 "You've been exploring our plans — happy to walk you through "
                 "which option fits your team best."
@@ -35,6 +35,6 @@ class MessagingAgent:
         }
 
         return templates.get(
-            decision.objective,
+            decision.action,
             f"Hi {customer.name},\n\n{decision.reason}",
         )

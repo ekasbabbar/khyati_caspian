@@ -39,7 +39,9 @@ def print_decision(customer: Customer, decision: IntentDecision) -> None:
     print(f"Reason:\n{decision.reason}\n")
 
     if decision.should_contact:
-        print(f"Channel:\n{decision.recommended_channel.title()}\n")
-        print(f"Objective:\n{decision.objective}.\n")
+        channel = decision.recommended_channel or "Not specified"
+        objective = decision.objective or "Provide helpful outreach"
+        print(f"Channel:\n{channel.title()}\n")
+        print(f"Objective:\n{objective}.\n")
 
     print("━" * 26)

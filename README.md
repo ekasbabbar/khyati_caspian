@@ -22,6 +22,12 @@ python app.py
 python -m unittest discover -s tests
 ```
 
+For a quick end-to-end smoke test:
+
+```bash
+python smoke_test.py
+```
+
 ## What it does
 
 1. Loads a customer and their event timeline from `data/sample_events.json`
