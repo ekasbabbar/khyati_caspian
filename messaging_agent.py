@@ -1,17 +1,40 @@
-"""Messaging agent — sends proactive outreach to users.
+"""Template-based message generation — no Caspian yet."""
 
-Caspian SDK integration will be added in a later iteration.
-"""
-
-from models import Customer
+from models import Customer, IntentDecision
 
 
 class MessagingAgent:
-    """Composes and delivers messages to customers."""
+    """Composes proactive outreach messages from intent decisions."""
 
-    def send(self, customer: Customer, message: str) -> None:
-        """Send a proactive message to a customer.
+    def generate(self, customer: Customer, decision: IntentDecision) -> str:
+        """Build a message tailored to the customer and decision objective."""
+        if not decision.should_contact:
+            return ""
 
-        Not implemented yet — placeholder for future Caspian integration.
-        """
-        raise NotImplementedError("MessagingAgent.send() is not implemented yet.")
+        templates: dict[str, str] = {
+            "Offer Pro plan": (
+                f"Hi {customer.name},\n\n"
+                "Looks like your team is growing.\n\n"
+                "If you'd like, I'd be happy to explain how the Pro plan could help."
+            ),
+            "Resolve payment issue": (
+                f"Hi {customer.name},\n\n"
+                "It looks like your recent payment didn't go through.\n\n"
+                "I'm here to help if you'd like assistance completing checkout."
+            ),
+            "Re-engage customer": (
+                f"Hi {customer.name},\n\n"
+                "We noticed you haven't been around lately.\n\n"
+                "If anything blocked you from getting started, I'm happy to help."
+            ),
+            "Offer plan guidance": (
+                f"Hi {customer.name},\n\n"
+                "You've been exploring our plans — happy to walk you through "
+                "which option fits your team best."
+            ),
+        }
+
+        return templates.get(
+            decision.objective,
+            f"Hi {customer.name},\n\n{decision.reason}",
+        )

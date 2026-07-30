@@ -1,37 +1,50 @@
-"""Load and query user activity events."""
+"""Load customer activity from JSON."""
 
 import json
 from pathlib import Path
 
+from pydantic import BaseModel
+
 from models import Customer, Event
 
 
+class CustomerDetails(BaseModel):
+    """Customer fields as represented in the event-history file."""
+
+    id: str
+    name: str
+    email: str
+
+
+class EventHistory(BaseModel):
+    """Validated shape of an event-history file."""
+
+    customer: CustomerDetails
+    events: list[Event]
+
+
 class EventStore:
-    """In-memory store backed by a JSON file of events and customers."""
+    """Loads a customer and their events from a JSON file."""
 
     def __init__(self, path: Path) -> None:
         self._path = path
-        self._events: list[Event] = []
-        self._customers: dict[str, Customer] = {}
+        self._customer: Customer | None = None
 
     @property
-    def events(self) -> list[Event]:
-        return list(self._events)
+    def customer(self) -> Customer:
+        if self._customer is None:
+            raise RuntimeError("Call load() before accessing customer.")
+        return self._customer
 
-    @property
-    def customers(self) -> dict[str, Customer]:
-        return dict(self._customers)
-
-    def load(self) -> None:
-        """Load events and customers from the configured JSON file."""
+    def load(self) -> Customer:
+        """Load customer and events from the configured JSON file."""
         raw = json.loads(self._path.read_text(encoding="utf-8"))
-
-        self._customers = {
-            customer["id"]: Customer.model_validate(customer)
-            for customer in raw.get("customers", [])
-        }
-        self._events = [Event.model_validate(event) for event in raw.get("events", [])]
-
-    def get_events_for_customer(self, customer_id: str) -> list[Event]:
-        """Return all events belonging to a single customer."""
-        return [event for event in self._events if event.customer_id == customer_id]
+        history = EventHistory.model_validate(raw)
+        customer_data = history.customer
+        self._customer = Customer(
+            id=customer_data.id,
+            name=customer_data.name,
+            email=customer_data.email,
+            events=sorted(history.events, key=lambda event: event.timestamp),
+        )
+        return self._customer

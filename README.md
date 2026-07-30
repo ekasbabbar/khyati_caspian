@@ -1,62 +1,35 @@
 # Khyati
 
-Khyati is an AI customer success agent that reasons over user activity events and decides whether to proactively contact users. Communication will be delivered through [Caspian](https://github.com/TryCaspian/caspian-sdk) in a later iteration.
-
-## Project structure
-
-```
-├── app.py              # Entry point
-├── config.py           # Environment-based settings
-├── models.py           # Pydantic domain models
-├── event_store.py      # Event loading and queries
-├── intent_agent.py     # Intent reasoning (stub)
-├── messaging_agent.py  # Outbound messaging (stub)
-├── logger.py           # Logging setup
-├── utils.py            # Shared helpers
-├── data/
-│   └── sample_events.json
-└── prompts/
-    ├── intent.txt
-    └── message.txt
-```
-
-## Requirements
-
-- Python 3.11+
-
-## Setup
-
-```bash
-python -m venv .venv
-
-# Windows
-.venv\Scripts\activate
-
-# macOS / Linux
-source .venv/bin/activate
-
-pip install -r requirements.txt
-cp .env.example .env   # optional — defaults work out of the box
-```
+Khyati is an AI customer success agent that reasons over user activity events and decides whether to proactively contact users.
 
 ## Run
 
 ```bash
+pip install -r requirements.txt
 python app.py
 ```
 
-This loads sample events from `data/sample_events.json` and prints them to stdout.
+To use a different event-history file:
 
-## What's implemented
+```bash
+$env:KHYATI_EVENTS_PATH = "data/another_customer.json"
+python app.py
+```
 
-- Pydantic `Customer` and `Event` models
-- JSON-backed `EventStore`
-- Configuration via environment variables
-- Prompt templates for future AI agents
-- Stub modules for intent reasoning and messaging
+## Test
+
+```bash
+python -m unittest discover -s tests
+```
+
+## What it does
+
+1. Loads a customer and their event timeline from `data/sample_events.json`
+2. Runs a rule engine to decide whether outreach is warranted
+3. Generates a proactive message when contact is recommended
 
 ## What's next
 
-- Wire up `IntentAgent` with an LLM to evaluate outreach decisions
-- Integrate `MessagingAgent` with the Caspian SDK for multi-channel delivery
-- Replace the file-based event store with a real event pipeline
+- Replace the rule engine with an LLM (Phase 6)
+- Send messages via the Caspian SDK (Phase 7)
+- Handle inbound replies (Phase 8)

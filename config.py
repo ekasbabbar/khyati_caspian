@@ -1,40 +1,25 @@
-"""Application configuration loaded from environment variables."""
+"""Application configuration for the local vertical slice."""
 
+from dataclasses import dataclass
+import os
 from pathlib import Path
-
-from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Project root is the repository directory.
 PACKAGE_ROOT: Path = Path(__file__).resolve().parent
 DATA_DIR: Path = PACKAGE_ROOT / "data"
-PROMPTS_DIR: Path = PACKAGE_ROOT / "prompts"
 DEFAULT_EVENTS_PATH: Path = DATA_DIR / "sample_events.json"
 
 
-class Settings(BaseSettings):
+@dataclass(frozen=True)
+class Settings:
     """Runtime settings for Khyati."""
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
-
-    # Event data
     events_path: Path = DEFAULT_EVENTS_PATH
-
-    # LLM (future intent / messaging agents)
-    openai_api_key: str | None = None
-    llm_model: str = "gpt-4o-mini"
-
-    # Caspian (future messaging — not wired up yet)
-    caspian_api_key: str | None = None
-    caspian_base_url: str = "https://api.trycaspianai.com"
-
-    # Logging
-    log_level: str = "INFO"
 
 
 def get_settings() -> Settings:
-    """Return application settings, loading from .env when present."""
-    return Settings()
+    """Return settings, allowing the sample file to be overridden."""
+    configured_path = os.getenv("KHYATI_EVENTS_PATH")
+    return Settings(
+        events_path=Path(configured_path) if configured_path else DEFAULT_EVENTS_PATH
+    )
