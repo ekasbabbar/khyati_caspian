@@ -1,12 +1,43 @@
-"""Rule-based intent engine — decides whether to proactively contact a user."""
+"""Intent analysis with structured LLM reasoning and a deterministic fallback."""
 
 from collections import Counter
+import json
+import logging
 
 from models import Customer, IntentDecision
 
+logger = logging.getLogger(__name__)
 
-class IntentAgent:
-    """Evaluates customer activity and produces outreach decisions."""
+INTENT_SYSTEM_PROMPT = """\
+You are Khyati, a careful customer-success agent.
+
+Your goal is to maximize long-term customer trust and success, not short-term
+sales. Sometimes the best decision is to do nothing. Recommend outreach only
+when the customer's event history shows that a timely message would provide
+genuine value.
+
+When outreach is appropriate:
+- action must be a stable snake_case identifier.
+- objective must describe the helpful customer outcome.
+- recommended_channel must be either "email" or "whatsapp".
+
+When outreach is not appropriate, set action, objective, and
+recommended_channel to null. Base the decision only on the supplied history.
+
+Return one JSON object with exactly these fields:
+{
+  "should_contact": true,
+  "confidence": 0.82,
+  "reason": "Why outreach would help",
+  "action": "stable_snake_case_action",
+  "objective": "Helpful customer outcome",
+  "recommended_channel": "email"
+}
+"""
+
+
+class RuleIntentAgent:
+    """Deterministic safety net for intent analysis."""
 
     def analyze(self, customer: Customer) -> IntentDecision:
         """Apply outreach rules to a customer's event history."""
@@ -71,3 +102,60 @@ class IntentAgent:
             confidence=0.60,
             reason="No outreach triggers detected.",
         )
+
+
+class IntentAgent:
+    """Use an LLM when configured, falling back to the proven rule engine."""
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        model: str = "gemini-3.5-flash-lite",
+        base_url: str | None = None,
+        provider: str = "gemini",
+        fallback: RuleIntentAgent | None = None,
+        client: object | None = None,
+    ) -> None:
+        self._model = model
+        self._provider = provider
+        self._fallback = fallback or RuleIntentAgent()
+        self._client = client
+        self.last_source = "rule fallback"
+
+        if self._client is None and api_key:
+            from openai import OpenAI
+
+            self._client = OpenAI(api_key=api_key, base_url=base_url)
+
+    @property
+    def using_llm(self) -> bool:
+        return self._client is not None
+
+    def analyze(self, customer: Customer) -> IntentDecision:
+        """Return structured intent analysis, with rules as a safe fallback."""
+        if self._client is None:
+            self.last_source = "rule fallback"
+            return self._fallback.analyze(customer)
+
+        try:
+            response = self._client.chat.completions.create(
+                model=self._model,
+                messages=[
+                    {"role": "system", "content": INTENT_SYSTEM_PROMPT},
+                    {
+                        "role": "user",
+                        "content": customer.model_dump_json(indent=2),
+                    },
+                ],
+                response_format={"type": "json_object"},
+            )
+            content = response.choices[0].message.content
+            if not content:
+                raise ValueError("LLM returned an empty intent decision")
+            decision = IntentDecision.model_validate(json.loads(content))
+            self.last_source = self._provider
+            return decision
+        except Exception:
+            logger.exception("LLM intent analysis failed; using rule fallback")
+            self.last_source = f"rule fallback ({self._provider} failed)"
+            return self._fallback.analyze(customer)

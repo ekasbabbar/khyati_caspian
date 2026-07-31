@@ -8,7 +8,8 @@ from messaging_agent import MessagingAgent
 
 def main() -> None:
     customer = EventStore(get_settings().events_path).load()
-    decision = IntentAgent().analyze(customer)
+    # Smoke tests are deterministic and never spend API credit.
+    decision = IntentAgent(api_key=None).analyze(customer)
     message = MessagingAgent().generate(customer, decision)
 
     assert customer.name == "Alice"

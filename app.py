@@ -26,7 +26,14 @@ def main() -> None:
     print_timeline(customer)
 
     print("\nAnalyzing customer intent...")
-    decision = IntentAgent().analyze(customer)
+    intent_agent = IntentAgent(
+        api_key=settings.llm_api_key if settings.use_llm else None,
+        model=settings.llm_model,
+        base_url=settings.llm_base_url,
+        provider=settings.llm_provider,
+    )
+    decision = intent_agent.analyze(customer)
+    print(f"Brain: {intent_agent.last_source}")
     print_decision(customer, decision)
 
     if decision.should_contact:

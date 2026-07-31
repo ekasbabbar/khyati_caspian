@@ -1,9 +1,9 @@
 """Domain models for Khyati."""
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class Event(BaseModel):
@@ -31,4 +31,16 @@ class IntentDecision(BaseModel):
     reason: str
     action: str | None = None
     objective: str | None = None
-    recommended_channel: str | None = None
+    recommended_channel: Literal["email", "whatsapp"] | None = None
+
+    @model_validator(mode="after")
+    def validate_outreach_details(self) -> "IntentDecision":
+        """Keep contact decisions internally consistent."""
+        outreach = (self.action, self.objective, self.recommended_channel)
+        if self.should_contact and any(value is None for value in outreach):
+            raise ValueError(
+                "contact decisions require action, objective, and channel"
+            )
+        if not self.should_contact and any(value is not None for value in outreach):
+            raise ValueError("no-contact decisions cannot include outreach details")
+        return self

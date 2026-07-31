@@ -75,9 +75,17 @@ class IntentAgentTests(unittest.TestCase):
     def test_confidence_must_be_between_zero_and_one(self) -> None:
         with self.assertRaises(ValidationError):
             IntentDecision(
-                should_contact=True,
+                should_contact=False,
                 confidence=1.1,
                 reason="Invalid confidence",
+            )
+
+    def test_contact_decision_requires_outreach_details(self) -> None:
+        with self.assertRaises(ValidationError):
+            IntentDecision(
+                should_contact=True,
+                confidence=0.8,
+                reason="Outreach would help.",
             )
 
 
