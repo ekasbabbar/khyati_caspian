@@ -4,8 +4,11 @@ from models import Customer, IntentDecision
 
 EVENT_LABELS: dict[str, str] = {
     "signup": "Signup",
+    "email_verified": "Verified Email",
     "created_project": "Created Project",
+    "imported_records": "Imported Records",
     "invited_teammate": "Invited Teammate",
+    "completed_workflow": "Completed Workflow",
     "pricing_page": "Viewed Pricing",
     "payment_failed": "Payment Failed",
     "inactive_14_days": "Inactive 14 Days",

@@ -23,6 +23,7 @@ class Settings:
     llm_api_key: str | None = None
     llm_model: str = "gemini-3.5-flash-lite"
     llm_base_url: str | None = None
+    llm_timeout_seconds: float = 60.0
     use_llm: bool = True
     caspian_api_key: str | None = None
     caspian_base_url: str = "https://api.trycaspianai.com"
@@ -61,6 +62,7 @@ def get_settings() -> Settings:
         llm_api_key=os.getenv("LLM_API_KEY") or provider_key,
         llm_model=os.getenv("LLM_MODEL", default_model),
         llm_base_url=os.getenv("LLM_BASE_URL") or default_base_url,
+        llm_timeout_seconds=float(os.getenv("LLM_TIMEOUT_SECONDS", "60")),
         use_llm=os.getenv("KHYATI_USE_LLM", "true").lower()
         in {"1", "true", "yes", "on"},
         caspian_api_key=os.getenv("CASPIAN_API_KEY"),

@@ -20,6 +20,12 @@ class Customer(BaseModel):
     id: str
     name: str
     email: str
+    whatsapp_number: str | None = None
+    company: str | None = None
+    role: str | None = None
+    plan: str | None = None
+    timezone: str | None = None
+    contact_preferences: dict[str, Any] = Field(default_factory=dict)
     events: list[Event] = Field(default_factory=list)
 
 

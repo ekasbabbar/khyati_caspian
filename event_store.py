@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from models import Customer, Event
 
@@ -14,6 +14,12 @@ class CustomerDetails(BaseModel):
     id: str
     name: str
     email: str
+    whatsapp_number: str | None = None
+    company: str | None = None
+    role: str | None = None
+    plan: str | None = None
+    timezone: str | None = None
+    contact_preferences: dict = Field(default_factory=dict)
 
 
 class EventHistory(BaseModel):
@@ -45,6 +51,12 @@ class EventStore:
             id=customer_data.id,
             name=customer_data.name,
             email=customer_data.email,
+            whatsapp_number=customer_data.whatsapp_number,
+            company=customer_data.company,
+            role=customer_data.role,
+            plan=customer_data.plan,
+            timezone=customer_data.timezone,
+            contact_preferences=customer_data.contact_preferences,
             events=sorted(history.events, key=lambda event: event.timestamp),
         )
         return self._customer

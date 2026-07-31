@@ -21,21 +21,38 @@ def main() -> None:
     print(f"Model: {settings.llm_model}")
     print(f"Endpoint: {endpoint}")
 
-    response = httpx.post(
-        endpoint,
-        headers={
-            "Authorization": f"Bearer {settings.llm_api_key}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": settings.llm_model,
-            "messages": [
-                {"role": "user", "content": "Reply with only: OK"},
-            ],
-        },
-        timeout=30.0,
-    )
-    response.raise_for_status()
+    try:
+        response = httpx.post(
+            endpoint,
+            headers={
+                "Authorization": f"Bearer {settings.llm_api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": settings.llm_model,
+                "messages": [
+                    {"role": "user", "content": "Reply with only: OK"},
+                ],
+            },
+            timeout=httpx.Timeout(settings.llm_timeout_seconds, connect=10.0),
+        )
+        response.raise_for_status()
+    except httpx.ReadTimeout as error:
+        raise SystemExit(
+            f"TIMEOUT: {settings.llm_provider} did not respond within "
+            f"{settings.llm_timeout_seconds:.0f}s. Try again, or increase "
+            "LLM_TIMEOUT_SECONDS in .env."
+        ) from error
+    except httpx.HTTPStatusError as error:
+        detail = error.response.text[:500]
+        raise SystemExit(
+            f"API ERROR: {error.response.status_code} from "
+            f"{settings.llm_provider}: {detail}"
+        ) from error
+    except httpx.RequestError as error:
+        raise SystemExit(
+            f"NETWORK ERROR: could not reach {settings.llm_provider}: {error}"
+        ) from error
 
     payload = response.json()
     reply = payload["choices"][0]["message"]["content"]

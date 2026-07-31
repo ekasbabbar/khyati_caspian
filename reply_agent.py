@@ -18,13 +18,19 @@ class ReplyAgent:
         api_key: str,
         model: str,
         base_url: str | None = None,
+        timeout_seconds: float = 60.0,
         behavior_prompt: str = "",
         client: object | None = None,
     ) -> None:
         if client is None:
             from openai import OpenAI
 
-            client = OpenAI(api_key=api_key, base_url=base_url)
+            client = OpenAI(
+                api_key=api_key,
+                base_url=base_url,
+                timeout=timeout_seconds,
+                max_retries=1,
+            )
         self._client = client
         self._model = model
         self._system_prompt = REPLY_SYSTEM_PROMPT

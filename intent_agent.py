@@ -113,6 +113,7 @@ class IntentAgent:
         model: str = "gemini-3.5-flash-lite",
         base_url: str | None = None,
         provider: str = "gemini",
+        timeout_seconds: float = 60.0,
         fallback: RuleIntentAgent | None = None,
         client: object | None = None,
     ) -> None:
@@ -125,7 +126,12 @@ class IntentAgent:
         if self._client is None and api_key:
             from openai import OpenAI
 
-            self._client = OpenAI(api_key=api_key, base_url=base_url)
+            self._client = OpenAI(
+                api_key=api_key,
+                base_url=base_url,
+                timeout=timeout_seconds,
+                max_retries=1,
+            )
 
     @property
     def using_llm(self) -> bool:

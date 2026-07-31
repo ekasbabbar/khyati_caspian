@@ -1,6 +1,7 @@
 """Khyati entry point."""
 
 import sys
+from time import perf_counter
 
 from config import get_settings
 from event_store import EventStore
@@ -31,9 +32,12 @@ def main() -> None:
         model=settings.llm_model,
         base_url=settings.llm_base_url,
         provider=settings.llm_provider,
+        timeout_seconds=settings.llm_timeout_seconds,
     )
+    analysis_started = perf_counter()
     decision = intent_agent.analyze(customer)
-    print(f"Brain: {intent_agent.last_source}")
+    analysis_seconds = perf_counter() - analysis_started
+    print(f"Brain: {intent_agent.last_source} ({analysis_seconds:.2f}s)")
     print_decision(customer, decision)
 
     if decision.should_contact:
