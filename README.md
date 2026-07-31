@@ -2,6 +2,8 @@
 
 Khyati is an AI customer success agent that reasons over user activity events and decides whether to proactively contact users.
 
+TechStack: Gemini 3 Flash + Caspian SDK 
+
 ## Local product loop
 
 ```bash
