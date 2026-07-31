@@ -1,6 +1,7 @@
 """Run Khyati on Email and WhatsApp through one Caspian handler."""
 
 from config import get_settings
+from conversation_memory import ConversationMemory
 from reply_agent import ReplyAgent
 
 
@@ -43,11 +44,16 @@ def connect_available_channels(client, settings) -> dict[str, dict]:
     return connected
 
 
-def build_handler(reply_agent: ReplyAgent):
+def build_handler(
+    reply_agent: ReplyAgent,
+    memory: ConversationMemory | None = None,
+):
     """Build the single normalized handler shared by every Caspian channel."""
+    memory = memory or ConversationMemory()
 
     def handle(message) -> None:
         text = (message.text or "").strip()
+        conversation_id = message.conversation_id
         sender = (message.sender or {}).get("address", "unknown")
         print(f"<- [{message.channel}] {sender}: {text}")
 
@@ -56,7 +62,11 @@ def build_handler(reply_agent: ReplyAgent):
             return
 
         try:
-            reply = reply_agent.respond(text=text, channel=message.channel)
+            reply = reply_agent.respond(
+                text=text,
+                channel=message.channel,
+                history=memory.history(conversation_id),
+            )
         except Exception as error:
             print(f"WARNING: reply generation failed ({error}).")
             fallback = (
@@ -65,9 +75,13 @@ def build_handler(reply_agent: ReplyAgent):
                 "try again shortly."
             )
             message.reply(fallback)
+            memory.add(conversation_id, "user", text)
+            memory.add(conversation_id, "assistant", fallback)
             return
 
         message.reply(reply)
+        memory.add(conversation_id, "user", text)
+        memory.add(conversation_id, "assistant", reply)
         print(f"-> [{message.channel}] {reply}")
 
     return handle

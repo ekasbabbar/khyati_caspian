@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import unittest
 
 from channels import build_handler, connect_available_channels
+from conversation_memory import ConversationMemory
 from intent_agent import IntentAgent
 from models import Customer, Event, IntentDecision
 from reply_agent import ReplyAgent
@@ -58,9 +59,15 @@ class FakeOpenAI:
 
 
 class FakeMessage:
-    def __init__(self, channel: str, text: str = "Can you help?") -> None:
+    def __init__(
+        self,
+        channel: str,
+        text: str = "Can you help?",
+        conversation_id: str = "conversation-1",
+    ) -> None:
         self.channel = channel
         self.text = text
+        self.conversation_id = conversation_id
         self.sender = {"address": "alice@example.com"}
         self.replies: list[str] = []
 
@@ -71,14 +78,16 @@ class FakeMessage:
 class StubReplyAgent:
     def __init__(self) -> None:
         self.channels: list[str] = []
+        self.histories: list[list[dict[str, str]]] = []
 
-    def respond(self, text: str, channel: str) -> str:
+    def respond(self, text: str, channel: str, history=None) -> str:
         self.channels.append(channel)
+        self.histories.append(history or [])
         return f"Helpful reply on {channel}"
 
 
 class FailingReplyAgent:
-    def respond(self, text: str, channel: str) -> str:
+    def respond(self, text: str, channel: str, history=None) -> str:
         raise RuntimeError("model unavailable")
 
 
@@ -166,6 +175,33 @@ class SharedHandlerTests(unittest.TestCase):
         self.assertIn("your message has been received", message.replies[0])
         self.assertIn("reply generation failed", output.getvalue())
 
+    def test_follow_up_receives_previous_turns(self) -> None:
+        agent = StubReplyAgent()
+        handler = build_handler(agent)
+
+        with redirect_stdout(StringIO()):
+            handler(FakeMessage("email", "What does Pro include?"))
+            handler(FakeMessage("email", "Would that help four people?"))
+
+        self.assertEqual(agent.histories[0], [])
+        self.assertEqual(
+            agent.histories[1],
+            [
+                {"role": "user", "content": "What does Pro include?"},
+                {"role": "assistant", "content": "Helpful reply on email"},
+            ],
+        )
+
+    def test_different_conversations_do_not_share_context(self) -> None:
+        agent = StubReplyAgent()
+        handler = build_handler(agent)
+
+        with redirect_stdout(StringIO()):
+            handler(FakeMessage("email", conversation_id="customer-a"))
+            handler(FakeMessage("email", conversation_id="customer-b"))
+
+        self.assertEqual(agent.histories, [[], []])
+
 
 class ChannelConnectionTests(unittest.TestCase):
     def test_email_remains_available_when_whatsapp_fails(self) -> None:
@@ -188,6 +224,22 @@ class ChannelConnectionTests(unittest.TestCase):
         with redirect_stdout(StringIO()):
             with self.assertRaises(RuntimeError):
                 connect_available_channels(client, FAKE_SETTINGS)
+
+
+class ConversationMemoryTests(unittest.TestCase):
+    def test_history_is_bounded_to_recent_messages(self) -> None:
+        memory = ConversationMemory(max_messages=2)
+        memory.add("conversation-1", "user", "first")
+        memory.add("conversation-1", "assistant", "second")
+        memory.add("conversation-1", "user", "third")
+
+        self.assertEqual(
+            memory.history("conversation-1"),
+            [
+                {"role": "assistant", "content": "second"},
+                {"role": "user", "content": "third"},
+            ],
+        )
 
 
 if __name__ == "__main__":

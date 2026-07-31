@@ -60,10 +60,14 @@ paid hosted channel and may require `caspian login`, starter credit, and provide
 setup. Both inbound channels reach the same `handle(message)` function, and
 `message.reply()` returns the answer to the originating thread.
 
+Recent turns are kept in process-local memory by Caspian `conversation_id`, so
+follow-up replies receive the preceding context without leaking history between
+customers. Memory resets when `channels.py` restarts.
+
 ## What it does
 
 1. Loads a customer and their event timeline from `data/sample_events.json`
-2. Uses structured OpenAI reasoning to decide whether outreach is warranted
+2. Uses structured LLM reasoning to decide whether outreach is warranted
 3. Generates a proactive message when contact is recommended
 4. Replies to inbound Email and WhatsApp messages through one Caspian handler
 
