@@ -9,7 +9,11 @@ from dotenv import load_dotenv
 # Project root is the repository directory.
 PACKAGE_ROOT: Path = Path(__file__).resolve().parent
 DATA_DIR: Path = PACKAGE_ROOT / "data"
-DEFAULT_EVENTS_PATH: Path = DATA_DIR / "sample_events.json"
+LOCAL_EVENTS_PATH: Path = DATA_DIR / "sample_events.json"
+EXAMPLE_EVENTS_PATH: Path = DATA_DIR / "sample_events.example.json"
+DEFAULT_EVENTS_PATH: Path = (
+    LOCAL_EVENTS_PATH if LOCAL_EVENTS_PATH.exists() else EXAMPLE_EVENTS_PATH
+)
 
 load_dotenv(PACKAGE_ROOT / ".env")
 
