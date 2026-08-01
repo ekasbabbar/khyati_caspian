@@ -41,7 +41,7 @@ To verify which configured LLM provider answers a live request:
 python provider_check.py
 ```
 
-## Email and WhatsApp
+## Email and Telegram
 
 Khyati uses one Caspian handler for both competition channels:
 
@@ -52,29 +52,30 @@ python channels.py
 Before running it:
 
 1. Fill in the selected LLM provider key and `CASPIAN_API_KEY` in `.env`.
-2. Connect WhatsApp using Caspian's Twilio sandbox or Meta onboarding.
-3. Keep `CASPIAN_WHATSAPP_PROVIDER` aligned with the provider you selected.
+2. Create a Telegram bot with `@BotFather` using `/newbot`.
+3. Put the returned token in `TELEGRAM_BOT_TOKEN`.
 
-Email is provisioned idempotently from `CASPIAN_EMAIL_USERNAME`. WhatsApp is a
-paid hosted channel and may require `caspian login`, starter credit, and provider
-setup. Both inbound channels reach the same `handle(message)` function, and
+Email is provisioned idempotently from `CASPIAN_EMAIL_USERNAME`. Telegram is a
+free channel connected through the bot token. Both inbound channels reach the
+same `handle(message)` function, and
 `message.reply()` returns the answer to the originating thread.
 
 Recent turns are kept in process-local memory by Caspian `conversation_id`, so
 follow-up replies receive the preceding context without leaking history between
-customers. Memory resets when `channels.py` restarts.
+customers. Memory resets when `channels.py` restarts. Concurrent conversations
+are supported, while `LLM_MAX_CONCURRENT` bounds simultaneous model requests to
+protect free-tier provider limits.
 
 ## What it does
 
 1. Loads a customer and their event timeline from `data/sample_events.json`
 2. Uses structured LLM reasoning to decide whether outreach is warranted
 3. Generates a proactive message when contact is recommended
-4. Replies to inbound Email and WhatsApp messages through one Caspian handler
+4. Replies to inbound Email and Telegram messages through one Caspian handler
 
 ## Safety boundaries
 
 - The deterministic rule engine remains the fallback.
-- WhatsApp cold outreach requires an approved template; this prototype does not
-  bypass that platform rule.
+- Telegram users must start the bot before it can reply to them.
 - `channels.py` performs real network operations. Tests never send messages or
   spend API/Caspian credit.

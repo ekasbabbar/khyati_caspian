@@ -14,7 +14,7 @@ class CustomerDetails(BaseModel):
     id: str
     name: str
     email: str
-    whatsapp_number: str | None = None
+    telegram_username: str | None = None
     company: str | None = None
     role: str | None = None
     plan: str | None = None
@@ -51,7 +51,7 @@ class EventStore:
             id=customer_data.id,
             name=customer_data.name,
             email=customer_data.email,
-            whatsapp_number=customer_data.whatsapp_number,
+            telegram_username=customer_data.telegram_username,
             company=customer_data.company,
             role=customer_data.role,
             plan=customer_data.plan,

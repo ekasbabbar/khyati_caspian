@@ -23,7 +23,7 @@ or infer facts that are not explicitly present in the supplied history.
 When outreach is appropriate:
 - action must be a stable snake_case identifier.
 - objective must describe the helpful customer outcome.
-- recommended_channel must be either "email" or "whatsapp".
+- recommended_channel must be either "email" or "telegram".
 
 When outreach is not appropriate, set action, objective, and
 recommended_channel to null. Base the decision only on the supplied history.

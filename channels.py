@@ -1,4 +1,4 @@
-"""Run Khyati on Email and WhatsApp through one Caspian handler."""
+"""Run Khyati on Email and Telegram through one Caspian handler."""
 
 from config import get_settings
 from conversation_memory import ConversationMemory
@@ -29,16 +29,19 @@ def connect_available_channels(client, settings) -> dict[str, dict]:
     except Exception as error:
         print(f"WARNING: {explain_connection_error('Email', error)}")
 
-    try:
-        connected["whatsapp"] = client.connect_whatsapp(
-            provider=settings.caspian_whatsapp_provider
-        )
-    except Exception as error:
-        print(f"WARNING: {explain_connection_error('WhatsApp', error)}")
+    if not settings.caspian_telegram_bot_token:
+        print("WARNING: Telegram: set TELEGRAM_BOT_TOKEN in .env.")
+    else:
+        try:
+            connected["telegram"] = client.connect_telegram(
+                bot_token=settings.caspian_telegram_bot_token
+            )
+        except Exception as error:
+            print(f"WARNING: {explain_connection_error('Telegram', error)}")
 
     if not connected:
         raise RuntimeError(
-            "Khyati could not connect Email or WhatsApp. Fix at least one "
+            "Khyati could not connect Email or Telegram. Fix at least one "
             "connection and try again."
         )
     return connected
@@ -116,13 +119,14 @@ def main() -> None:
         model=settings.llm_model,
         base_url=settings.llm_base_url,
         timeout_seconds=settings.llm_timeout_seconds,
+        max_concurrent=settings.llm_max_concurrent,
         behavior_prompt=behavior_prompt,
     )
 
     for channel, connection in connected.items():
         address = connection.get("address", connection.get("id", "active"))
         print(f"{channel.title()} active: {address}")
-    unavailable = {"email", "whatsapp"} - connected.keys()
+    unavailable = {"email", "telegram"} - connected.keys()
     if unavailable:
         print(f"Degraded mode: unavailable channel(s): {', '.join(sorted(unavailable))}")
     print("Khyati is listening. Press Ctrl+C to stop.")

@@ -1,8 +1,11 @@
 """Offline tests for OpenAI reasoning and Caspian's shared handler."""
 
 from contextlib import redirect_stdout
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from io import StringIO
+from threading import Lock
+from time import sleep
 from types import SimpleNamespace
 import unittest
 
@@ -53,6 +56,30 @@ class FakeCompletions:
         )
 
 
+class TrackingCompletions:
+    def __init__(self) -> None:
+        self.active = 0
+        self.high_water_mark = 0
+        self.lock = Lock()
+
+    def create(self, **kwargs):
+        with self.lock:
+            self.active += 1
+            self.high_water_mark = max(self.high_water_mark, self.active)
+        try:
+            sleep(0.02)
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(content="Happy to help.")
+                    )
+                ]
+            )
+        finally:
+            with self.lock:
+                self.active -= 1
+
+
 class FakeOpenAI:
     def __init__(self, completions: FakeCompletions) -> None:
         self.chat = SimpleNamespace(completions=completions)
@@ -95,25 +122,25 @@ class FakeCaspianClient:
     def __init__(
         self,
         email_error: Exception | None = None,
-        whatsapp_error: Exception | None = None,
+        telegram_error: Exception | None = None,
     ) -> None:
         self.email_error = email_error
-        self.whatsapp_error = whatsapp_error
+        self.telegram_error = telegram_error
 
     def connect_email(self, **kwargs) -> dict:
         if self.email_error:
             raise self.email_error
         return {"id": "email-1", "address": "khyati@example.com"}
 
-    def connect_whatsapp(self, **kwargs) -> dict:
-        if self.whatsapp_error:
-            raise self.whatsapp_error
-        return {"id": "whatsapp-1", "address": "+15555550123"}
+    def connect_telegram(self, **kwargs) -> dict:
+        if self.telegram_error:
+            raise self.telegram_error
+        return {"id": "telegram-1", "address": "@khyati_test_bot"}
 
 
 FAKE_SETTINGS = SimpleNamespace(
     caspian_email_username="khyati",
-    caspian_whatsapp_provider="twilio-whatsapp",
+    caspian_telegram_bot_token="test-token",
 )
 
 
@@ -150,21 +177,42 @@ class ReplyAgentTests(unittest.TestCase):
 
         self.assertEqual(reply, "Happy to help, Alice.")
 
+    def test_concurrent_model_calls_are_bounded(self) -> None:
+        completions = TrackingCompletions()
+        client = FakeOpenAI(completions)
+        agent = ReplyAgent(
+            api_key="test",
+            model="test-model",
+            client=client,
+            max_concurrent=2,
+        )
+
+        with ThreadPoolExecutor(max_workers=6) as executor:
+            replies = list(
+                executor.map(
+                    lambda _: agent.respond("Help", "telegram"),
+                    range(6),
+                )
+            )
+
+        self.assertEqual(replies, ["Happy to help."] * 6)
+        self.assertEqual(completions.high_water_mark, 2)
+
 
 class SharedHandlerTests(unittest.TestCase):
-    def test_one_handler_replies_on_email_and_whatsapp(self) -> None:
+    def test_one_handler_replies_on_email_and_telegram(self) -> None:
         agent = StubReplyAgent()
         handler = build_handler(agent)
         email = FakeMessage("email")
-        whatsapp = FakeMessage("whatsapp")
+        telegram = FakeMessage("telegram")
 
         with redirect_stdout(StringIO()):
             handler(email)
-            handler(whatsapp)
+            handler(telegram)
 
-        self.assertEqual(agent.channels, ["email", "whatsapp"])
+        self.assertEqual(agent.channels, ["email", "telegram"])
         self.assertEqual(email.replies, ["Helpful reply on email"])
-        self.assertEqual(whatsapp.replies, ["Helpful reply on whatsapp"])
+        self.assertEqual(telegram.replies, ["Helpful reply on telegram"])
 
     def test_model_failure_sends_safe_fallback(self) -> None:
         message = FakeMessage("email")
@@ -204,21 +252,21 @@ class SharedHandlerTests(unittest.TestCase):
 
 
 class ChannelConnectionTests(unittest.TestCase):
-    def test_email_remains_available_when_whatsapp_fails(self) -> None:
+    def test_email_remains_available_when_telegram_fails(self) -> None:
         client = FakeCaspianClient(
-            whatsapp_error=RuntimeError("WhatsApp unavailable")
+            telegram_error=RuntimeError("Telegram unavailable")
         )
 
         with redirect_stdout(StringIO()) as output:
             connected = connect_available_channels(client, FAKE_SETTINGS)
 
         self.assertEqual(set(connected), {"email"})
-        self.assertIn("WhatsApp", output.getvalue())
+        self.assertIn("Telegram", output.getvalue())
 
     def test_startup_fails_when_both_channels_fail(self) -> None:
         client = FakeCaspianClient(
             email_error=RuntimeError("Email unavailable"),
-            whatsapp_error=RuntimeError("WhatsApp unavailable"),
+            telegram_error=RuntimeError("Telegram unavailable"),
         )
 
         with redirect_stdout(StringIO()):

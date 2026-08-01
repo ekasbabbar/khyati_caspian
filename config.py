@@ -24,11 +24,12 @@ class Settings:
     llm_model: str = "gemini-3.5-flash-lite"
     llm_base_url: str | None = None
     llm_timeout_seconds: float = 60.0
+    llm_max_concurrent: int = 2
     use_llm: bool = True
     caspian_api_key: str | None = None
     caspian_base_url: str = "https://api.trycaspianai.com"
     caspian_email_username: str = "khyati"
-    caspian_whatsapp_provider: str = "twilio-whatsapp"
+    caspian_telegram_bot_token: str | None = None
 
 
 def get_settings() -> Settings:
@@ -63,6 +64,7 @@ def get_settings() -> Settings:
         llm_model=os.getenv("LLM_MODEL", default_model),
         llm_base_url=os.getenv("LLM_BASE_URL") or default_base_url,
         llm_timeout_seconds=float(os.getenv("LLM_TIMEOUT_SECONDS", "60")),
+        llm_max_concurrent=int(os.getenv("LLM_MAX_CONCURRENT", "2")),
         use_llm=os.getenv("KHYATI_USE_LLM", "true").lower()
         in {"1", "true", "yes", "on"},
         caspian_api_key=os.getenv("CASPIAN_API_KEY"),
@@ -70,7 +72,5 @@ def get_settings() -> Settings:
             "CASPIAN_BASE_URL", "https://api.trycaspianai.com"
         ),
         caspian_email_username=os.getenv("CASPIAN_EMAIL_USERNAME", "khyati"),
-        caspian_whatsapp_provider=os.getenv(
-            "CASPIAN_WHATSAPP_PROVIDER", "twilio-whatsapp"
-        ),
+        caspian_telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN"),
     )

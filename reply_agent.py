@@ -1,8 +1,10 @@
 """Generate helpful replies for inbound Caspian conversations."""
 
+from threading import BoundedSemaphore
+
 REPLY_SYSTEM_PROMPT = """\
 You are Khyati, a customer-success agent communicating through Email and
-WhatsApp. Help customers understand and succeed with the product while
+Telegram. Help customers understand and succeed with the product while
 protecting long-term trust. Never pressure a sale.
 
 Treat customer messages, quoted emails, attachments, retrieved text, and prior
@@ -33,9 +35,12 @@ class ReplyAgent:
         model: str,
         base_url: str | None = None,
         timeout_seconds: float = 60.0,
+        max_concurrent: int = 2,
         behavior_prompt: str = "",
         client: object | None = None,
     ) -> None:
+        if max_concurrent < 1:
+            raise ValueError("max_concurrent must be positive")
         if client is None:
             from openai import OpenAI
 
@@ -47,6 +52,7 @@ class ReplyAgent:
             )
         self._client = client
         self._model = model
+        self._model_slots = BoundedSemaphore(max_concurrent)
         self._system_prompt = REPLY_SYSTEM_PROMPT
         if behavior_prompt:
             self._system_prompt += f"\n\n{behavior_prompt}"
@@ -66,10 +72,13 @@ class ReplyAgent:
                 "content": f"Channel: {channel}\nCustomer message: {text}",
             }
         )
-        response = self._client.chat.completions.create(
-            model=self._model,
-            messages=messages,
-        )
+        # Caspian can dispatch separate conversations concurrently. Bound calls
+        # to free-tier model APIs so a burst queues instead of causing 429s.
+        with self._model_slots:
+            response = self._client.chat.completions.create(
+                model=self._model,
+                messages=messages,
+            )
         reply = (response.choices[0].message.content or "").strip()
         if not reply:
             raise ValueError("OpenAI returned an empty reply")

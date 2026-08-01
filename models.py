@@ -20,7 +20,7 @@ class Customer(BaseModel):
     id: str
     name: str
     email: str
-    whatsapp_number: str | None = None
+    telegram_username: str | None = None
     company: str | None = None
     role: str | None = None
     plan: str | None = None
@@ -37,7 +37,7 @@ class IntentDecision(BaseModel):
     reason: str
     action: str | None = None
     objective: str | None = None
-    recommended_channel: Literal["email", "whatsapp"] | None = None
+    recommended_channel: Literal["email", "telegram"] | None = None
 
     @model_validator(mode="after")
     def validate_outreach_details(self) -> "IntentDecision":
