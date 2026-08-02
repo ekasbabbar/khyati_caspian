@@ -9,6 +9,9 @@ from dotenv import load_dotenv
 # Project root is the repository directory.
 PACKAGE_ROOT: Path = Path(__file__).resolve().parent
 DATA_DIR: Path = PACKAGE_ROOT / "data"
+LOCAL_KNOWLEDGE_DIR: Path = PACKAGE_ROOT / "knowledge"
+EXAMPLE_KNOWLEDGE_DIR: Path = PACKAGE_ROOT / "knowledge.example"
+DEFAULT_KNOWLEDGE_INDEX: Path = PACKAGE_ROOT / ".khyati" / "knowledge.sqlite3"
 LOCAL_EVENTS_PATH: Path = DATA_DIR / "sample_events.json"
 EXAMPLE_EVENTS_PATH: Path = DATA_DIR / "sample_events.example.json"
 DEFAULT_EVENTS_PATH: Path = (
@@ -23,6 +26,8 @@ class Settings:
     """Runtime settings for Khyati."""
 
     events_path: Path = DEFAULT_EVENTS_PATH
+    knowledge_dir: Path = EXAMPLE_KNOWLEDGE_DIR
+    knowledge_index_path: Path = DEFAULT_KNOWLEDGE_INDEX
     llm_provider: str = "gemini"
     llm_api_key: str | None = None
     llm_model: str = "gemini-3.5-flash-lite"
@@ -34,11 +39,13 @@ class Settings:
     caspian_base_url: str = "https://api.trycaspianai.com"
     caspian_email_username: str = "khyati"
     caspian_telegram_bot_token: str | None = None
+    owner_telegram_username: str | None = None
 
 
 def get_settings() -> Settings:
     """Build settings from `.env` or process-level environment variables."""
     configured_path = os.getenv("KHYATI_EVENTS_PATH")
+    configured_knowledge = os.getenv("KHYATI_KNOWLEDGE_DIR")
     provider = os.getenv("LLM_PROVIDER", "gemini").lower()
     provider_defaults = {
         "gemini": (
@@ -63,6 +70,18 @@ def get_settings() -> Settings:
 
     return Settings(
         events_path=Path(configured_path) if configured_path else DEFAULT_EVENTS_PATH,
+        knowledge_dir=(
+            Path(configured_knowledge)
+            if configured_knowledge
+            else (
+                LOCAL_KNOWLEDGE_DIR
+                if LOCAL_KNOWLEDGE_DIR.exists()
+                else EXAMPLE_KNOWLEDGE_DIR
+            )
+        ),
+        knowledge_index_path=Path(
+            os.getenv("KHYATI_KNOWLEDGE_INDEX", str(DEFAULT_KNOWLEDGE_INDEX))
+        ),
         llm_provider=provider,
         llm_api_key=os.getenv("LLM_API_KEY") or provider_key,
         llm_model=os.getenv("LLM_MODEL", default_model),
@@ -77,4 +96,5 @@ def get_settings() -> Settings:
         ),
         caspian_email_username=os.getenv("CASPIAN_EMAIL_USERNAME", "khyati"),
         caspian_telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN"),
+        owner_telegram_username=os.getenv("KHYATI_OWNER_TELEGRAM_USERNAME"),
     )

@@ -2,6 +2,7 @@
 
 from config import get_settings
 from conversation_memory import ConversationMemory
+from knowledge_retriever import KnowledgeRetriever
 from reply_agent import ReplyAgent
 
 
@@ -50,15 +51,27 @@ def connect_available_channels(client, settings) -> dict[str, dict]:
 def build_handler(
     reply_agent: ReplyAgent,
     memory: ConversationMemory | None = None,
+    client=None,
+    owner_telegram_username: str | None = None,
 ):
     """Build the single normalized handler shared by every Caspian channel."""
     memory = memory or ConversationMemory()
+    owner_conversation_id: str | None = None
+    expected_owner = (owner_telegram_username or "").strip().lower().lstrip("@")
 
     def handle(message) -> None:
+        nonlocal owner_conversation_id
         text = (message.text or "").strip()
         conversation_id = message.conversation_id
         sender = (message.sender or {}).get("address", "unknown")
         print(f"<- [{message.channel}] {sender}: {text}")
+
+        if message.channel == "telegram":
+            actual_sender = sender.strip().lower().lstrip("@")
+            if expected_owner and actual_sender != expected_owner:
+                message.reply("This is a private career-agent channel.")
+                return
+            owner_conversation_id = conversation_id
 
         if not text:
             message.reply("I received your message, but it did not include any text.")
@@ -87,6 +100,19 @@ def build_handler(
         memory.add(conversation_id, "assistant", reply)
         print(f"-> [{message.channel}] {reply}")
 
+        if message.channel == "email" and client and owner_conversation_id:
+            try:
+                client.send_message(
+                    owner_conversation_id,
+                    text=(
+                        f"Recruiter message from {sender}:\n\n{text}\n\n"
+                        "Khyati replied:\n\n"
+                        f"{reply}"
+                    ),
+                )
+            except Exception as error:
+                print(f"WARNING: owner notification failed ({error}).")
+
     return handle
 
 
@@ -96,6 +122,10 @@ def main() -> None:
         raise RuntimeError("Set CASPIAN_API_KEY in .env before running channels.py")
     if not settings.llm_api_key:
         raise RuntimeError("Set the selected provider's API key in .env")
+    if not settings.owner_telegram_username:
+        raise RuntimeError(
+            "Set KHYATI_OWNER_TELEGRAM_USERNAME in .env to secure Telegram."
+        )
 
     from caspian_sdk import CommClient
 
@@ -104,6 +134,14 @@ def main() -> None:
         base_url=settings.caspian_base_url,
     )
     connected = connect_available_channels(client, settings)
+    retriever = KnowledgeRetriever(
+        settings.knowledge_dir,
+        settings.knowledge_index_path,
+    )
+    print(
+        f"Career knowledge indexed: {retriever.chunk_count} chunks from "
+        f"{retriever.source_count} files at {settings.knowledge_dir.resolve()}"
+    )
 
     try:
         behavior_prompt = client.behavior_prompt()
@@ -121,6 +159,7 @@ def main() -> None:
         timeout_seconds=settings.llm_timeout_seconds,
         max_concurrent=settings.llm_max_concurrent,
         behavior_prompt=behavior_prompt,
+        retriever=retriever,
     )
 
     for channel, connection in connected.items():
@@ -131,7 +170,13 @@ def main() -> None:
         print(f"Degraded mode: unavailable channel(s): {', '.join(sorted(unavailable))}")
     print("Khyati is listening. Press Ctrl+C to stop.")
 
-    client.on_message(build_handler(reply_agent))
+    client.on_message(
+        build_handler(
+            reply_agent,
+            client=client,
+            owner_telegram_username=settings.owner_telegram_username,
+        )
+    )
     try:
         client.listen()
     except KeyboardInterrupt:

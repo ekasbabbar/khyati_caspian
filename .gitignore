@@ -16,6 +16,10 @@ env/
 # Local customer/demo data
 data/sample_events.json
 
+# Private career knowledge
+knowledge/
+.khyati/
+
 # Test and type-checker caches
 .pytest_cache/
 .mypy_cache/

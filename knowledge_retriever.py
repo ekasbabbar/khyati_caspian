@@ -1,0 +1,237 @@
+"""Persistent, privacy-aware hybrid retrieval for career knowledge."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from contextlib import closing
+import hashlib
+import json
+import math
+from pathlib import Path
+import re
+import sqlite3
+from typing import Iterable
+
+
+TOKEN_PATTERN = re.compile(r"[a-z0-9+#.]+")
+HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
+
+# Small domain vocabulary bridges recruiter language and resume terminology.
+# This is deterministic, inspectable, and complements exact keyword ranking.
+CONCEPTS: dict[str, tuple[str, ...]] = {
+    "data analyst": ("data", "analytics", "sql", "python", "statistics", "visualization", "eda"),
+    "data analysis": ("analytics", "sql", "python", "statistics", "visualization", "eda"),
+    "product manager": ("product", "leadership", "communication", "ownership", "planning", "users"),
+    "product management": ("product", "leadership", "communication", "ownership", "planning", "users"),
+    "pm intern": ("product", "leadership", "communication", "ownership", "planning"),
+    "backend": ("api", "fastapi", "database", "sql", "server", "python"),
+    "machine learning": ("ml", "pytorch", "scikit-learn", "models", "data", "ai"),
+    "artificial intelligence": ("ai", "machine learning", "llm", "agents", "models"),
+    "software engineer": ("programming", "backend", "frontend", "api", "git", "projects"),
+    "availability": ("start", "summer", "remote", "relocate", "internship", "schedule"),
+    "compensation": ("salary", "pay", "stipend", "offer", "negotiate"),
+}
+
+
+@dataclass(frozen=True)
+class KnowledgeChunk:
+    id: str
+    source: str
+    heading: str
+    text: str
+    visibility: str = "recruiter"
+    approval_required: bool = False
+    topics: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class RetrievalResult:
+    context: str
+    sources: tuple[str, ...]
+    chunks: tuple[KnowledgeChunk, ...]
+
+
+def _tokens(text: str) -> list[str]:
+    return TOKEN_PATTERN.findall(text.lower())
+
+
+def _frontmatter(text: str) -> tuple[dict[str, str], str]:
+    """Parse the small YAML-like metadata subset used by knowledge files."""
+    if not text.startswith("---\n"):
+        return {}, text
+    end = text.find("\n---\n", 4)
+    if end < 0:
+        return {}, text
+    metadata: dict[str, str] = {}
+    for line in text[4:end].splitlines():
+        if ":" in line:
+            key, value = line.split(":", 1)
+            metadata[key.strip().lower()] = value.strip().strip('"\'')
+    return metadata, text[end + 5 :]
+
+
+def _split_markdown(source: str, text: str, max_chars: int = 2_000) -> list[KnowledgeChunk]:
+    metadata, body = _frontmatter(text)
+    visibility = metadata.get("visibility", "recruiter").lower()
+    if visibility not in {"public", "recruiter", "owner_only"}:
+        raise ValueError(f"Invalid visibility '{visibility}' in {source}")
+    approval = metadata.get("approval_required", "false").lower() in {"1", "true", "yes"}
+    topics = tuple(part.strip().lower() for part in metadata.get("topics", "").split(",") if part.strip())
+
+    sections: list[tuple[str, list[str]]] = []
+    heading = Path(source).stem.replace("_", " ").title()
+    lines: list[str] = []
+    for line in body.splitlines():
+        match = HEADING_PATTERN.match(line)
+        if match and lines:
+            sections.append((heading, lines))
+            heading, lines = match.group(2).strip(), []
+        elif match:
+            heading = match.group(2).strip()
+        else:
+            lines.append(line)
+    if lines:
+        sections.append((heading, lines))
+
+    chunks: list[KnowledgeChunk] = []
+    for section_heading, section_lines in sections:
+        content = "\n".join(section_lines).strip()
+        if not content:
+            continue
+        paragraphs = re.split(r"\n\s*\n", content)
+        current = ""
+        parts: list[str] = []
+        for paragraph in paragraphs:
+            candidate = f"{current}\n\n{paragraph}".strip()
+            if current and len(candidate) > max_chars:
+                parts.append(current)
+                current = paragraph
+            else:
+                current = candidate
+        if current:
+            parts.append(current)
+        for index, part in enumerate(parts):
+            chunk_id = hashlib.sha256(f"{source}:{section_heading}:{index}:{part}".encode()).hexdigest()
+            chunks.append(KnowledgeChunk(chunk_id, source, section_heading, part, visibility, approval, topics))
+    return chunks
+
+
+class KnowledgeRetriever:
+    """Index Markdown/text files and retrieve only query-relevant chunks."""
+
+    SUPPORTED_SUFFIXES = {".md", ".txt"}
+
+    def __init__(self, directory: Path, index_path: Path, max_chunk_chars: int = 2_000) -> None:
+        self.directory = directory
+        self.index_path = index_path
+        self.max_chunk_chars = max_chunk_chars
+        self.chunk_count = 0
+        self.source_count = 0
+        self._build_if_changed()
+
+    def _files(self) -> list[Path]:
+        if not self.directory.is_dir():
+            raise FileNotFoundError(f"Knowledge directory not found: {self.directory}")
+        return [p for p in sorted(self.directory.rglob("*")) if p.is_file() and p.suffix.lower() in self.SUPPORTED_SUFFIXES]
+
+    def _fingerprint(self, files: Iterable[Path]) -> str:
+        digest = hashlib.sha256()
+        for path in files:
+            digest.update(path.relative_to(self.directory).as_posix().encode())
+            digest.update(path.read_bytes())
+        return digest.hexdigest()
+
+    def _connect(self) -> sqlite3.Connection:
+        self.index_path.parent.mkdir(parents=True, exist_ok=True)
+        connection = sqlite3.connect(self.index_path)
+        connection.row_factory = sqlite3.Row
+        connection.execute("CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        connection.execute("""CREATE TABLE IF NOT EXISTS chunks (
+            id TEXT PRIMARY KEY, source TEXT NOT NULL, heading TEXT NOT NULL,
+            text TEXT NOT NULL, visibility TEXT NOT NULL,
+            approval_required INTEGER NOT NULL, topics TEXT NOT NULL)""")
+        return connection
+
+    def _build_if_changed(self) -> None:
+        files = self._files()
+        if not files:
+            raise ValueError(f"No Markdown or text knowledge found in {self.directory}")
+        fingerprint = self._fingerprint(files)
+        with closing(self._connect()) as connection:
+            row = connection.execute("SELECT value FROM metadata WHERE key='fingerprint'").fetchone()
+            if not row or row[0] != fingerprint:
+                chunks: list[KnowledgeChunk] = []
+                for path in files:
+                    source = path.relative_to(self.directory).as_posix()
+                    chunks.extend(_split_markdown(source, path.read_text(encoding="utf-8"), self.max_chunk_chars))
+                connection.execute("DELETE FROM chunks")
+                connection.executemany(
+                    "INSERT INTO chunks VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    [(c.id, c.source, c.heading, c.text, c.visibility, int(c.approval_required), json.dumps(c.topics)) for c in chunks],
+                )
+                connection.execute("INSERT OR REPLACE INTO metadata VALUES ('fingerprint', ?)", (fingerprint,))
+                connection.commit()
+            self.chunk_count = connection.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
+            self.source_count = connection.execute("SELECT COUNT(DISTINCT source) FROM chunks").fetchone()[0]
+
+    def _allowed_chunks(self, audience: str) -> list[KnowledgeChunk]:
+        allowed = ("public", "recruiter", "owner_only") if audience == "owner" else ("public", "recruiter")
+        placeholders = ",".join("?" for _ in allowed)
+        with closing(self._connect()) as connection:
+            rows = connection.execute(f"SELECT * FROM chunks WHERE visibility IN ({placeholders})", allowed).fetchall()
+        return [KnowledgeChunk(r["id"], r["source"], r["heading"], r["text"], r["visibility"], bool(r["approval_required"]), tuple(json.loads(r["topics"]))) for r in rows]
+
+    def search(self, query: str, audience: str = "recruiter", limit: int = 5, max_characters: int = 7_000) -> RetrievalResult:
+        if audience not in {"recruiter", "owner"}:
+            raise ValueError("audience must be recruiter or owner")
+        chunks = self._allowed_chunks(audience)
+        query_lower = query.lower()
+        query_terms = _tokens(query)
+        for phrase, related in CONCEPTS.items():
+            phrase_terms = set(_tokens(phrase))
+            if phrase in query_lower or phrase_terms.issubset(set(query_terms)):
+                query_terms.extend(term for item in related for term in _tokens(item))
+        query_set = set(query_terms)
+
+        tokenized = [_tokens(f"{c.heading} {' '.join(c.topics)} {c.text}") for c in chunks]
+        document_frequency = {term: sum(term in set(doc) for doc in tokenized) for term in query_set}
+        average_length = sum(map(len, tokenized)) / max(len(tokenized), 1)
+        scored: list[tuple[float, KnowledgeChunk]] = []
+        for chunk, document in zip(chunks, tokenized):
+            frequencies = {term: document.count(term) for term in query_set}
+            score = 0.0
+            for term, frequency in frequencies.items():
+                if not frequency:
+                    continue
+                inverse = math.log(1 + (len(chunks) - document_frequency[term] + 0.5) / (document_frequency[term] + 0.5))
+                score += inverse * frequency * 2.2 / (frequency + 1.2 * (0.25 + 0.75 * len(document) / max(average_length, 1)))
+            title_tokens = set(_tokens(f"{chunk.source} {chunk.heading} {' '.join(chunk.topics)}"))
+            score += 1.5 * len(query_set & title_tokens)
+            normalized_heading = " ".join(_tokens(chunk.heading))
+            normalized_source = " ".join(_tokens(Path(chunk.source).stem))
+            if normalized_heading and normalized_heading in query_lower:
+                score += 6.0
+            if normalized_source and normalized_source in query_lower:
+                score += 4.0
+            if score > 0:
+                scored.append((score, chunk))
+        scored.sort(key=lambda item: (-item[0], item[1].source, item[1].heading))
+
+        selected: list[KnowledgeChunk] = []
+        used = 0
+        for _, chunk in scored[: max(limit * 3, limit)]:
+            rendered = self._render(chunk)
+            if selected and used + len(rendered) > max_characters:
+                continue
+            selected.append(chunk)
+            used += len(rendered)
+            if len(selected) == limit:
+                break
+        context = "\n\n".join(self._render(chunk) for chunk in selected)
+        sources = tuple(dict.fromkeys(f"{chunk.source}#{chunk.heading}" for chunk in selected))
+        return RetrievalResult(context, sources, tuple(selected))
+
+    @staticmethod
+    def _render(chunk: KnowledgeChunk) -> str:
+        approval = "yes" if chunk.approval_required else "no"
+        return f"[SOURCE: {chunk.source} | SECTION: {chunk.heading} | APPROVAL REQUIRED: {approval}]\n{chunk.text}\n[END SOURCE]"

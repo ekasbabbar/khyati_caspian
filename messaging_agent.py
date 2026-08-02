@@ -1,40 +1,26 @@
-"""Template-based message generation — no Caspian yet."""
+"""Deterministic previews for recruiter and owner messages."""
 
-from models import Customer, IntentDecision
+from models import CareerDecision, RecruiterLead
 
 
 class MessagingAgent:
-    """Composes proactive outreach messages from intent decisions."""
-
-    def generate(self, customer: Customer, decision: IntentDecision) -> str:
-        """Build a message tailored to the customer and decision objective."""
-        if not decision.should_contact:
+    def generate(self, lead: RecruiterLead, decision: CareerDecision) -> str:
+        if not decision.should_respond and not decision.should_notify_owner:
             return ""
 
-        templates: dict[str, str] = {
-            "offer_pro_plan": (
-                f"Hi {customer.name},\n\n"
-                "Looks like your team is growing.\n\n"
-                "If you'd like, I'd be happy to explain how the Pro plan could help."
-            ),
-            "resolve_payment_issue": (
-                f"Hi {customer.name},\n\n"
-                "It looks like your recent payment didn't go through.\n\n"
-                "I'm here to help if you'd like assistance completing checkout."
-            ),
-            "reengage_customer": (
-                f"Hi {customer.name},\n\n"
-                "We noticed you haven't been around lately.\n\n"
-                "If anything blocked you from getting started, I'm happy to help."
-            ),
-            "offer_plan_guidance": (
-                f"Hi {customer.name},\n\n"
-                "You've been exploring our plans — happy to walk you through "
-                "which option fits your team best."
-            ),
-        }
+        if decision.should_notify_owner:
+            company = lead.company or "an unspecified company"
+            return (
+                f"Recruiter alert: {lead.name} from {company} contacted Khyati.\n\n"
+                f"Intent: {decision.recruiter_intent.replace('_', ' ').title()}\n"
+                f"Reason: {decision.reason}\n\n"
+                "Review the request before Khyati makes any commitment."
+            )
 
-        return templates.get(
-            decision.action,
-            f"Hi {customer.name},\n\n{decision.reason}",
+        return (
+            f"Hi {lead.name},\n\n"
+            "Thanks for reaching out. I’m Khyati, the candidate’s AI career "
+            "representative. I can answer using verified career information "
+            "and involve the candidate whenever approval is needed.\n\n"
+            f"Objective: {decision.objective}."
         )

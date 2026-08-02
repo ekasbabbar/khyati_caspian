@@ -1,57 +1,16 @@
 {
-  "customer": {
-    "id": "cust_demo_001",
-    "name": "Alice",
-    "email": "alice@example.com",
-    "telegram_username": "@alice_demo",
-    "company": "Northstar Design Studio",
-    "role": "Founder",
-    "plan": "free",
-    "timezone": "Asia/Kolkata",
-    "contact_preferences": {
-      "preferred_channel": "email",
-      "email_opt_in": true,
-      "telegram_opt_in": true,
-      "language": "en-IN",
-      "quiet_hours": {
-        "start": "20:00",
-        "end": "09:00"
-      }
-    }
+  "recruiter": {
+    "id": "recruiter_demo_001",
+    "name": "Priya Sharma",
+    "email": "priya.recruiter@example.com",
+    "company": "Acme AI",
+    "role": "Technical Recruiter",
+    "hiring_for": "AI Software Engineering Intern"
   },
   "events": [
-    {
-      "type": "signup",
-      "timestamp": "2026-07-30T09:00:00+05:30",
-      "metadata": {
-        "source": "product_hunt",
-        "selected_plan": "free"
-      }
-    },
-    {
-      "type": "created_project",
-      "timestamp": "2026-07-30T09:10:00+05:30",
-      "metadata": {
-        "project_name": "Client Portal Redesign",
-        "template": "product_design"
-      }
-    },
-    {
-      "type": "invited_teammate",
-      "timestamp": "2026-07-30T09:15:00+05:30",
-      "metadata": {
-        "team_size_after_invite": 2,
-        "invite_status": "accepted"
-      }
-    },
-    {
-      "type": "pricing_page",
-      "timestamp": "2026-07-30T09:30:00+05:30",
-      "metadata": {
-        "viewed_plan": "pro",
-        "billing_cycle": "annual",
-        "seconds_on_page": 76
-      }
-    }
+    {"type": "general_recruiter_inquiry", "timestamp": "2026-08-02T09:00:00+05:30", "metadata": {"source": "email", "subject": "AI engineering opportunity"}},
+    {"type": "portfolio_viewed", "timestamp": "2026-08-02T09:05:00+05:30", "metadata": {"page": "projects"}},
+    {"type": "project_question", "timestamp": "2026-08-02T09:10:00+05:30", "metadata": {"project": "Khyati", "question": "What did you build personally?"}},
+    {"type": "interview_requested", "timestamp": "2026-08-02T09:30:00+05:30", "metadata": {"proposed_window": "next week", "format": "video call"}}
   ]
 }

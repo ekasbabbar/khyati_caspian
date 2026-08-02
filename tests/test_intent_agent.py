@@ -1,93 +1,26 @@
-"""Behavior tests for Khyati's rule-based intent engine."""
-
+"""Tests for Khyati's deterministic career-intent fallback."""
 from datetime import datetime
 import unittest
-
 from intent_agent import IntentAgent
-from models import Customer, Event, IntentDecision
+from models import CareerDecision, InteractionEvent, RecruiterLead
 from pydantic import ValidationError
 
-
-def customer_with(*event_types: str) -> Customer:
-    """Build a customer with the requested event sequence."""
-    events = [
-        Event(type=event_type, timestamp=datetime(2026, 7, 30, 9, index))
-        for index, event_type in enumerate(event_types)
-    ]
-    return Customer(
-        id="cust_test",
-        name="Test Customer",
-        email="test@example.com",
-        events=events,
-    )
-
+def lead_with(*types):
+    return RecruiterLead(id="r1", name="Recruiter", email="r@example.com", company="Acme", events=[InteractionEvent(type=t,timestamp=datetime(2026,8,2,9,i)) for i,t in enumerate(types)])
 
 class IntentAgentTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.agent = IntentAgent()
+    def setUp(self): self.agent = IntentAgent()
+    def test_project_question_gets_email_reply(self):
+        d=self.agent.analyze(lead_with("project_question")); self.assertTrue(d.should_respond); self.assertFalse(d.should_notify_owner); self.assertEqual(d.recommended_channel,"email")
+    def test_interview_replies_and_notifies(self):
+        d=self.agent.analyze(lead_with("interview_requested")); self.assertTrue(d.should_respond); self.assertTrue(d.should_notify_owner); self.assertEqual(d.recommended_channel,"telegram")
+    def test_compensation_requires_owner(self): self.assertTrue(self.agent.analyze(lead_with("compensation_question")).should_notify_owner)
+    def test_unrelated_gets_no_action(self):
+        d=self.agent.analyze(lead_with("unrelated")); self.assertFalse(d.should_respond); self.assertFalse(d.should_notify_owner)
+    def test_interview_has_priority(self): self.assertEqual(self.agent.analyze(lead_with("project_question","interview_requested")).action,"request_interview_approval")
+    def test_confidence_is_bounded(self):
+        with self.assertRaises(ValidationError): CareerDecision(should_respond=False,should_notify_owner=False,confidence=1.1,recruiter_intent="unrelated",reason="invalid")
+    def test_actionable_requires_details(self):
+        with self.assertRaises(ValidationError): CareerDecision(should_respond=True,should_notify_owner=False,confidence=.8,recruiter_intent="general_inquiry",reason="reply")
 
-    def test_signup_alone_does_not_trigger_contact(self) -> None:
-        decision = self.agent.analyze(customer_with("signup"))
-        self.assertFalse(decision.should_contact)
-
-    def test_three_pricing_views_trigger_contact(self) -> None:
-        decision = self.agent.analyze(
-            customer_with("pricing_page", "pricing_page", "pricing_page")
-        )
-        self.assertTrue(decision.should_contact)
-        self.assertEqual(decision.action, "offer_plan_guidance")
-
-    def test_payment_failure_triggers_immediate_help(self) -> None:
-        decision = self.agent.analyze(customer_with("payment_failed"))
-        self.assertTrue(decision.should_contact)
-        self.assertEqual(decision.action, "resolve_payment_issue")
-
-    def test_inactivity_triggers_reengagement(self) -> None:
-        decision = self.agent.analyze(customer_with("inactive_14_days"))
-        self.assertTrue(decision.should_contact)
-        self.assertEqual(decision.action, "reengage_customer")
-
-    def test_teammate_invitation_and_pricing_trigger_upsell(self) -> None:
-        decision = self.agent.analyze(
-            customer_with("invited_teammate", "pricing_page")
-        )
-        self.assertTrue(decision.should_contact)
-        self.assertEqual(decision.action, "offer_pro_plan")
-
-    def test_higher_priority_payment_rule_wins(self) -> None:
-        decision = self.agent.analyze(
-            customer_with(
-                "inactive_14_days",
-                "pricing_page",
-                "pricing_page",
-                "pricing_page",
-                "payment_failed",
-            )
-        )
-        self.assertEqual(decision.action, "resolve_payment_issue")
-
-    def test_no_contact_decision_has_no_outreach_details(self) -> None:
-        decision = self.agent.analyze(customer_with("signup"))
-        self.assertIsNone(decision.action)
-        self.assertIsNone(decision.objective)
-        self.assertIsNone(decision.recommended_channel)
-
-    def test_confidence_must_be_between_zero_and_one(self) -> None:
-        with self.assertRaises(ValidationError):
-            IntentDecision(
-                should_contact=False,
-                confidence=1.1,
-                reason="Invalid confidence",
-            )
-
-    def test_contact_decision_requires_outreach_details(self) -> None:
-        with self.assertRaises(ValidationError):
-            IntentDecision(
-                should_contact=True,
-                confidence=0.8,
-                reason="Outreach would help.",
-            )
-
-
-if __name__ == "__main__":
-    unittest.main()
+if __name__ == "__main__": unittest.main()

@@ -1,268 +1,223 @@
 # Khyati
 
-Khyati is a proactive AI customer-success agent. It observes product activity,
-decides whether outreach would genuinely help, and continues the conversation
-with customers over Email and Telegram through one Caspian handler.
+Khyati is a personal AI career representative. Recruiters can email Khyati to
+learn about a candidate from a verified private knowledge base; sensitive
+requests are escalated to the candidate through a private Telegram channel.
 
-The goal is not to maximize outreach. Khyati is designed to protect long-term
-customer trust, which means the right decision can be to do nothing.
+Khyati is explicit about being an AI representative. It does not invent career
+facts, negotiate compensation, accept interviews, or make commitments without
+the candidate's approval.
 
-## Why Khyati?
-
-Most assistants wait inside a chat window. Khyati connects product behavior to
-real customer communication:
+## Product flow
 
 ```text
-Customer events
-      ↓
-Structured intent decision
-      ↓
-Helpful message or deliberate no-contact decision
-      ↓
-Caspian Email + Telegram
-      ↓
-Contextual follow-up conversation
+Recruiter Email → Caspian → grounded AI reply
+                         ↘ private Telegram update → candidate
 ```
 
-## Current capabilities
+Email and Telegram are connected through one Caspian message handler, satisfying
+the hackathon's two-channel requirement.
 
-- Validates customer profiles and event histories with Pydantic.
-- Uses structured LLM reasoning to decide whether outreach is warranted.
-- Falls back to a deterministic five-rule engine when the model is unavailable.
-- Generates trust-focused outreach messages.
-- Receives and replies through Email and Telegram with one Caspian handler.
-- Maintains bounded, isolated memory for each Caspian conversation.
-- Limits concurrent model calls to protect free-tier API limits.
-- Handles partial channel outages and model failures gracefully.
-- Includes offline unit tests and an end-to-end smoke test.
+## What it does
 
-## Tech stack
-
-- Python 3.11+
-- Pydantic
-- Gemini 3.5 Flash-Lite by default
-- OpenAI-compatible model interface (Gemini, DeepSeek, or OpenAI)
-- [Caspian SDK](https://github.com/TryCaspian/caspian-sdk)
-- Email and Telegram
+- Retrieves only relevant Markdown/text sections for each recruiter question.
+- Uses hybrid BM25-style ranking plus career-concept expansion.
+- Persists the local chunk index in ignored SQLite storage.
+- Enforces recruiter versus owner visibility before context reaches the model.
+- Separates public demo knowledge from private personal information.
+- Classifies recruiter intent with an LLM and a deterministic five-rule fallback.
+- Escalates interview, availability, and compensation requests to the owner.
+- Keeps bounded, isolated context for each conversation.
+- Limits concurrent model calls and degrades safely when a provider fails.
+- Locks the Telegram owner channel to one configured username.
 
 ## Architecture
 
 ```text
-data/sample_events.json
-        ↓
-EventStore → Customer + Event models
-        ↓
-IntentAgent
-   ├── configured LLM
-   └── RuleIntentAgent fallback
-        ↓
-IntentDecision
-        ↓
-MessagingAgent → local outreach preview
+knowledge/ → heading chunks → persistent hybrid index
+                                  ↓ relevant, authorized chunks
+                              ReplyAgent
+                                  ↑
+Recruiter Email → Caspian single handler → Email reply
+                                  ↓
+                         Owner Telegram alert
 
-Email / Telegram
-        ↓
-Caspian CommClient
-        ↓
-one message handler
-        ↓
-ConversationMemory → ReplyAgent → message.reply()
+sample_events.json → EventStore → IntentAgent → CareerDecision → preview
+                                      ↘ five-rule fallback
 ```
 
 ## Quick start
 
-### 1. Create a virtual environment
-
-PowerShell:
+Requires Python 3.11+.
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-```
-
-macOS/Linux:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-```
-
-### 2. Create local configuration and data
-
-PowerShell:
-
-```powershell
 Copy-Item .env.example .env
 Copy-Item data/sample_events.example.json data/sample_events.json
 ```
 
-macOS/Linux:
+On macOS/Linux, activate with `source .venv/bin/activate` and use `cp` for the
+two copy commands.
+
+Run the deterministic/LLM-backed local decision preview:
 
 ```bash
-cp .env.example .env
-cp data/sample_events.example.json data/sample_events.json
+python app.py
 ```
 
-Both `.env` and `data/sample_events.json` are ignored by Git. Replace the
-placeholder contact information only in your local copy.
+This command never sends a message. Run `python provider_check.py` to verify the
+configured model with one live request.
 
-### 3. Configure an LLM
+## Private career knowledge
 
-Gemini 3.5 Flash-Lite is the default development provider because it offers a
-free tier. Create a key in [Google AI Studio](https://aistudio.google.com/apikey)
-and update `.env`:
+The repository contains fictional, publishable examples under
+`knowledge.example/`. A local `knowledge/` folder is ignored by Git and is the
+default source when present:
+
+```text
+knowledge/
+├── profile.md
+├── experience.md
+├── education.md
+├── skills.md
+├── availability.md
+├── preferences.md
+└── projects/
+    └── khyati.md
+```
+
+Fill these files with concise, verifiable facts. Do not include credentials,
+government IDs, home addresses, references' private details, or anything an AI
+should never disclose. You may point to another folder with
+`KHYATI_KNOWLEDGE_DIR`.
+
+Files may begin with metadata controlling retrieval:
+
+```markdown
+---
+visibility: recruiter
+approval_required: false
+topics: python, analytics, data science
+---
+```
+
+Supported visibility values are `public`, `recruiter`, and `owner_only`.
+Recruiter email retrieval can never select `owner_only` chunks; authenticated
+owner Telegram retrieval can. Put sensitive decision context in separate
+`owner_only` files because visibility currently applies at file level.
+
+The index is rebuilt automatically when a knowledge file changes. Override its
+ignored local location with `KHYATI_KNOWLEDGE_INDEX` if needed.
+
+In a fresh clone without a local folder, Khyati safely loads
+`knowledge.example/`, so the public demo works without personal data.
+
+## Configure the LLM
+
+Gemini's OpenAI-compatible endpoint is the default:
 
 ```dotenv
 KHYATI_USE_LLM=true
 LLM_PROVIDER=gemini
 LLM_MODEL=gemini-3.5-flash-lite
 GEMINI_API_KEY=your_key
-LLM_TIMEOUT_SECONDS=60
 LLM_MAX_CONCURRENT=2
 ```
 
-DeepSeek and OpenAI remain available by changing `LLM_PROVIDER`, `LLM_MODEL`,
-and the corresponding API-key variable. If no key is configured—or the request
-fails—Khyati uses its deterministic rule engine.
+DeepSeek and OpenAI are also supported through the corresponding provider and
+API-key variables. Intent analysis falls back to five conservative rules if the
+model is missing or unavailable. Live conversational replies use a safe
+acknowledgement if generation fails.
 
-### 4. Run the local decision loop
+## Connect Caspian Email and Telegram
 
-```bash
-python app.py
-```
-
-This loads the sample customer, prints the timeline, analyzes intent, and
-previews the proposed outreach message. It does not send a real message.
-
-To verify the configured model endpoint with one live request:
-
-```bash
-python provider_check.py
-```
-
-## Connect Email and Telegram
-
-### Caspian setup
-
-Install the Caspian CLI and initialize a project:
+Install and initialize Caspian:
 
 ```bash
 python -m pip install caspian-cli
 caspian init
 ```
 
-Add the generated values to `.env`:
+Create a Telegram bot with `@BotFather`, then configure `.env`:
 
 ```dotenv
 CASPIAN_API_KEY=your_caspian_key
-CASPIAN_BASE_URL=https://api.trycaspianai.com
 CASPIAN_EMAIL_USERNAME=khyati-yourname
-```
-
-### Telegram setup
-
-1. Open Telegram and message `@BotFather`.
-2. Send `/newbot` and choose a bot name and username.
-3. Copy the bot token into `.env`:
-
-```dotenv
 TELEGRAM_BOT_TOKEN=your_bot_token
+KHYATI_OWNER_TELEGRAM_USERNAME=@your_username
 ```
 
-### Start the live agent
+Start the live two-channel agent:
 
 ```bash
 python channels.py
 ```
 
-Email is provisioned idempotently from `CASPIAN_EMAIL_USERNAME`. Caspian
-registers the Telegram connection using the bot token. Both channels reach the
-same handler, and `message.reply()` responds in the originating thread.
+Open your Telegram bot from the configured owner account, press **Start**, and
+send a message once. This establishes the private owner conversation for the
+current process. Recruiters can then email the Caspian address printed during
+startup. Khyati replies in the original email thread and sends the owner a
+Telegram summary when that owner conversation is available.
 
-To test Telegram, open the bot, press **Start**, and send a message. To test
-Email, send a message to the Caspian address printed at startup.
+## Safety model
 
-## Conversation memory
+- Recruiter messages, quoted mail, URLs, attachments, and event metadata are
+  untrusted input.
+- Career answers must be grounded in the configured knowledge files.
+- Only the top relevant chunks are sent to the model, and retrieved source
+  names are printed in the terminal for auditability.
+- Interview scheduling, compensation, references, and private contact details
+  require owner involvement.
+- Telegram sender authorization is enforced in code, not only in a prompt.
+- Conversation histories are isolated and bounded to recent messages.
+- One failed channel does not prevent the other from starting.
 
-Recent user and assistant turns are stored by Caspian `conversation_id`:
+No system prompt makes an agent immune to prompt injection. A production version
+would also need durable identity mapping, encrypted persistent memory,
+idempotency, audit logs, and explicit approval actions.
 
-- Threads remain isolated from one another.
-- At most 12 recent messages are retained per conversation.
-- Memory is thread-safe.
-- Memory resets whenever `channels.py` restarts.
+## Tests
 
-Persistent conversation storage is intentionally deferred for the prototype.
-
-## Reliability and safety
-
-- Customer text, quoted email, event metadata, and retrieved content are treated
-  as untrusted input.
-- The reply policy rejects requests for prompts, credentials, private data, and
-  hidden reasoning.
-- Khyati must not invent product features, prices, affiliations, or account state.
-- Intent decisions are validated before use.
-- Model failures fall back to rules or a safe customer-facing acknowledgement.
-- Email and Telegram connect independently, allowing explicit degraded operation.
-- Model concurrency is bounded with `LLM_MAX_CONCURRENT`.
-- No test sends a real message or spends provider credit.
-
-No prompt can guarantee immunity from prompt injection. Production deployments
-should combine model instructions with authorization, tool restrictions, audit
-logs, persistent idempotency, and human escalation.
-
-## Testing
-
-Run the offline suite:
+All tests are offline and send no real messages:
 
 ```bash
 python -m unittest discover -s tests -q
-```
-
-Run the deterministic vertical-slice smoke test:
-
-```bash
 python smoke_test.py
 ```
 
 ## Project structure
 
 ```text
-app.py                    Local intent-analysis demo
+app.py                    Local recruiter-intent preview
 channels.py               Caspian Email + Telegram runtime
-config.py                 Environment configuration
-conversation_memory.py    Bounded per-thread memory
-event_store.py            JSON loading and validation
-intent_agent.py           LLM reasoning + rule fallback
-messaging_agent.py        Deterministic outreach templates
-models.py                 Domain and decision models
-provider_check.py         Live LLM endpoint check
-reply_agent.py            Contextual channel replies
-data/                     Sanitized example event history
-tests/                    Offline behavior tests
+knowledge_retriever.py    Persistent hybrid retrieval and privacy filtering
+reply_agent.py            Grounded recruiter/owner conversation agent
+intent_agent.py           LLM classifier + five-rule fallback
+models.py                 Recruiter, event, and decision models
+event_store.py            Demo interaction loader
+conversation_memory.py    Bounded per-thread context
+knowledge.example/        Fictional public knowledge base
+knowledge/                Private ignored knowledge base
+data/                     Public and local interaction fixtures
+tests/                    Offline regression tests
 ```
 
-## Known prototype limitations
+## Prototype limitations
 
-- The local outreach generated by `app.py` is preview-only.
-- Conversation memory does not survive process restarts.
-- Product facts are not yet grounded in an authoritative knowledge source.
-- Telegram users must start the bot before it can reply.
-- A free-tier model provider may impose rate and concurrency limits.
-- This is a hackathon prototype, not a production customer-contact system.
-
-## Roadmap
-
-- Add trusted product knowledge for grounded responses.
-- Strip quoted email history before sending messages to the model.
-- Add persistent conversation history and idempotency.
-- Connect approved proactive Email delivery.
-- Add human handoff and escalation for sensitive cases.
-- Record delivery outcomes and decision audit trails.
+- Owner Telegram conversation discovery is process-local and must be
+  re-established after restart.
+- Conversation memory is not persistent.
+- `app.py` previews decisions; only `channels.py` communicates through Caspian.
+- Attachments are not parsed into trusted knowledge.
+- Retrieval currently uses inspectable lexical/concept ranking rather than
+  embedding similarity. The retriever boundary is ready for pgvector or Qdrant
+  when corpus size or semantic diversity warrants it.
+- The owner approval loop currently alerts rather than executing structured
+  approve/deny actions.
 
 ## Hackathon
 
-Khyati is being built for Caspian's 15-day AI Agent Hackathon. The prototype uses
-the `caspian-sdk`, operates on Email and Telegram, and serves both channels through
-a single normalized handler.
+Built for Caspian's 15-day AI Agent Hackathon. Khyati uses `caspian-sdk`, runs on
+Email and Telegram, and handles both through one normalized handler.

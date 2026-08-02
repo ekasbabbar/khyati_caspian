@@ -1,5 +1,4 @@
-"""Offline tests for OpenAI reasoning and Caspian's shared handler."""
-
+"""Offline tests for AI reasoning and Caspian's shared handler."""
 from contextlib import redirect_stdout
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -12,283 +11,123 @@ import unittest
 from channels import build_handler, connect_available_channels
 from conversation_memory import ConversationMemory
 from intent_agent import IntentAgent
-from models import Customer, Event, IntentDecision
+from models import CareerDecision, InteractionEvent, RecruiterLead
 from reply_agent import ReplyAgent
+from knowledge_retriever import RetrievalResult
 
-
-def sample_customer() -> Customer:
-    return Customer(
-        id="cust_001",
-        name="Alice",
-        email="alice@example.com",
-        events=[
-            Event(
-                type="pricing_page",
-                timestamp=datetime(2026, 7, 30, 9, 30),
-            )
-        ],
-    )
-
+def sample_lead():
+    return RecruiterLead(id="r1",name="Priya",email="p@example.com",events=[InteractionEvent(type="project_question",timestamp=datetime(2026,8,2,9))])
 
 class FakeCompletions:
-    def __init__(
-        self,
-        decision: IntentDecision | None = None,
-        reply: str = "How can I help?",
-        error: Exception | None = None,
-    ) -> None:
-        self.decision = decision
-        self.reply = reply
-        self.error = error
-
+    def __init__(self, decision=None, reply="How can I help?", error=None): self.decision,self.reply,self.error=decision,reply,error; self.last_kwargs=None
     def create(self, **kwargs):
-        if self.error:
-            raise self.error
-        content = (
-            self.decision.model_dump_json()
-            if self.decision is not None
-            else self.reply
-        )
-        return SimpleNamespace(
-            choices=[
-                SimpleNamespace(message=SimpleNamespace(content=content))
-            ]
-        )
-
-
+        self.last_kwargs=kwargs
+        if self.error: raise self.error
+        content=self.decision.model_dump_json() if self.decision else self.reply
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
 class TrackingCompletions:
-    def __init__(self) -> None:
-        self.active = 0
-        self.high_water_mark = 0
-        self.lock = Lock()
-
+    def __init__(self): self.active=0; self.high_water_mark=0; self.lock=Lock()
     def create(self, **kwargs):
-        with self.lock:
-            self.active += 1
-            self.high_water_mark = max(self.high_water_mark, self.active)
+        with self.lock: self.active+=1; self.high_water_mark=max(self.high_water_mark,self.active)
         try:
-            sleep(0.02)
-            return SimpleNamespace(
-                choices=[
-                    SimpleNamespace(
-                        message=SimpleNamespace(content="Happy to help.")
-                    )
-                ]
-            )
+            sleep(.02); return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="Happy to help."))])
         finally:
-            with self.lock:
-                self.active -= 1
-
-
+            with self.lock: self.active-=1
 class FakeOpenAI:
-    def __init__(self, completions: FakeCompletions) -> None:
-        self.chat = SimpleNamespace(completions=completions)
-
-
+    def __init__(self, completions): self.chat=SimpleNamespace(completions=completions)
 class FakeMessage:
-    def __init__(
-        self,
-        channel: str,
-        text: str = "Can you help?",
-        conversation_id: str = "conversation-1",
-    ) -> None:
-        self.channel = channel
-        self.text = text
-        self.conversation_id = conversation_id
-        self.sender = {"address": "alice@example.com"}
-        self.replies: list[str] = []
-
-    def reply(self, text: str) -> None:
-        self.replies.append(text)
-
-
+    def __init__(self, channel, text="Can you tell me about the project?", conversation_id="c1", sender="recruiter@example.com"):
+        self.channel,self.text,self.conversation_id=channel,text,conversation_id; self.sender={"address":sender}; self.replies=[]
+    def reply(self,text): self.replies.append(text)
 class StubReplyAgent:
-    def __init__(self) -> None:
-        self.channels: list[str] = []
-        self.histories: list[list[dict[str, str]]] = []
-
-    def respond(self, text: str, channel: str, history=None) -> str:
-        self.channels.append(channel)
-        self.histories.append(history or [])
-        return f"Helpful reply on {channel}"
-
-
+    def __init__(self): self.channels=[]; self.histories=[]
+    def respond(self,text,channel,history=None): self.channels.append(channel); self.histories.append(history or []); return f"Helpful reply on {channel}"
 class FailingReplyAgent:
-    def respond(self, text: str, channel: str, history=None) -> str:
-        raise RuntimeError("model unavailable")
-
-
+    def respond(self,*args,**kwargs): raise RuntimeError("model unavailable")
+class StubRetriever:
+    def __init__(self): self.audiences=[]
+    def search(self,query,audience="recruiter",**kwargs):
+        self.audiences.append(audience)
+        return RetrievalResult("[SOURCE: skills.md]\nPython\n[END SOURCE]",("skills.md#Python",),())
 class FakeCaspianClient:
-    def __init__(
-        self,
-        email_error: Exception | None = None,
-        telegram_error: Exception | None = None,
-    ) -> None:
-        self.email_error = email_error
-        self.telegram_error = telegram_error
-
-    def connect_email(self, **kwargs) -> dict:
-        if self.email_error:
-            raise self.email_error
-        return {"id": "email-1", "address": "khyati@example.com"}
-
-    def connect_telegram(self, **kwargs) -> dict:
-        if self.telegram_error:
-            raise self.telegram_error
-        return {"id": "telegram-1", "address": "@khyati_test_bot"}
-
-
-FAKE_SETTINGS = SimpleNamespace(
-    caspian_email_username="khyati",
-    caspian_telegram_bot_token="test-token",
-)
-
+    def __init__(self,email_error=None,telegram_error=None): self.email_error=email_error; self.telegram_error=telegram_error; self.sent=[]
+    def connect_email(self,**kwargs):
+        if self.email_error: raise self.email_error
+        return {"id":"email-1","address":"khyati@example.com"}
+    def connect_telegram(self,**kwargs):
+        if self.telegram_error: raise self.telegram_error
+        return {"id":"telegram-1","address":"@khyati_bot"}
+    def send_message(self,conversation_id,**kwargs): self.sent.append((conversation_id,kwargs["text"]))
+SETTINGS=SimpleNamespace(caspian_email_username="khyati",caspian_telegram_bot_token="token")
 
 class AIIntentTests(unittest.TestCase):
-    def test_structured_llm_decision_is_used(self) -> None:
-        expected = IntentDecision(
-            should_contact=False,
-            confidence=0.84,
-            reason="The customer needs time to explore.",
-        )
-        client = FakeOpenAI(FakeCompletions(decision=expected))
-
-        decision = IntentAgent(client=client).analyze(sample_customer())
-
-        self.assertEqual(decision, expected)
-
-    def test_rule_engine_is_used_when_llm_fails(self) -> None:
-        client = FakeOpenAI(FakeCompletions(error=RuntimeError("API unavailable")))
-
-        with self.assertLogs("intent_agent", level="ERROR") as logs:
-            decision = IntentAgent(client=client).analyze(sample_customer())
-
-        self.assertFalse(decision.should_contact)
-        self.assertEqual(decision.reason, "No outreach triggers detected.")
-        self.assertIn("using rule fallback", logs.output[0])
-
+    def test_structured_llm_decision_is_used(self):
+        expected=CareerDecision(should_respond=False,should_notify_owner=False,confidence=.84,recruiter_intent="unrelated",reason="Not career-related.")
+        self.assertEqual(IntentAgent(client=FakeOpenAI(FakeCompletions(decision=expected))).analyze(sample_lead()),expected)
+    def test_rule_fallback_when_llm_fails(self):
+        with self.assertLogs("intent_agent",level="ERROR"):
+            decision=IntentAgent(client=FakeOpenAI(FakeCompletions(error=RuntimeError("API unavailable")))).analyze(sample_lead())
+        self.assertTrue(decision.should_respond)
 
 class ReplyAgentTests(unittest.TestCase):
-    def test_reply_agent_returns_model_text(self) -> None:
-        client = FakeOpenAI(FakeCompletions(reply="Happy to help, Alice."))
-        agent = ReplyAgent(api_key="test", model="test-model", client=client)
-
-        reply = agent.respond("I need help", "email")
-
-        self.assertEqual(reply, "Happy to help, Alice.")
-
-    def test_concurrent_model_calls_are_bounded(self) -> None:
-        completions = TrackingCompletions()
-        client = FakeOpenAI(completions)
-        agent = ReplyAgent(
-            api_key="test",
-            model="test-model",
-            client=client,
-            max_concurrent=2,
-        )
-
-        with ThreadPoolExecutor(max_workers=6) as executor:
-            replies = list(
-                executor.map(
-                    lambda _: agent.respond("Help", "telegram"),
-                    range(6),
-                )
-            )
-
-        self.assertEqual(replies, ["Happy to help."] * 6)
-        self.assertEqual(completions.high_water_mark, 2)
-
+    def test_returns_model_text(self):
+        agent=ReplyAgent(api_key="test",model="test",client=FakeOpenAI(FakeCompletions(reply="Verified project details.")))
+        self.assertEqual(agent.respond("Tell me more","email"),"Verified project details.")
+    def test_knowledge_and_channel_role_reach_model(self):
+        completions=FakeCompletions(reply="Assessment")
+        agent=ReplyAgent(api_key="test",model="test",client=FakeOpenAI(completions),retriever=StubRetriever())
+        with redirect_stdout(StringIO()): agent.respond("data analyst intern","email")
+        messages=completions.last_kwargs["messages"]
+        self.assertIn("[SOURCE: skills.md]",messages[0]["content"])
+        self.assertIn("external recruiter",messages[-1]["content"])
+    def test_telegram_is_identified_as_owner_channel(self):
+        completions=FakeCompletions(reply="Owner assessment")
+        agent=ReplyAgent(api_key="test",model="test",client=FakeOpenAI(completions))
+        agent.respond("product management intern","telegram")
+        self.assertIn("candidate owner",completions.last_kwargs["messages"][-1]["content"])
+    def test_retrieval_uses_channel_audience(self):
+        completions=FakeCompletions(reply="Assessment"); retriever=StubRetriever()
+        agent=ReplyAgent(api_key="test",model="test",client=FakeOpenAI(completions),retriever=retriever)
+        with redirect_stdout(StringIO()): agent.respond("role","email"); agent.respond("role","telegram")
+        self.assertEqual(retriever.audiences,["recruiter","owner"])
+    def test_concurrency_is_bounded(self):
+        completions=TrackingCompletions(); agent=ReplyAgent(api_key="test",model="test",client=FakeOpenAI(completions),max_concurrent=2)
+        with ThreadPoolExecutor(max_workers=6) as pool: replies=list(pool.map(lambda _:agent.respond("Help","telegram"),range(6)))
+        self.assertEqual(replies,["Happy to help."]*6); self.assertEqual(completions.high_water_mark,2)
 
 class SharedHandlerTests(unittest.TestCase):
-    def test_one_handler_replies_on_email_and_telegram(self) -> None:
-        agent = StubReplyAgent()
-        handler = build_handler(agent)
-        email = FakeMessage("email")
-        telegram = FakeMessage("telegram")
-
-        with redirect_stdout(StringIO()):
-            handler(email)
-            handler(telegram)
-
-        self.assertEqual(agent.channels, ["email", "telegram"])
-        self.assertEqual(email.replies, ["Helpful reply on email"])
-        self.assertEqual(telegram.replies, ["Helpful reply on telegram"])
-
-    def test_model_failure_sends_safe_fallback(self) -> None:
-        message = FakeMessage("email")
-
-        with redirect_stdout(StringIO()) as output:
-            build_handler(FailingReplyAgent())(message)
-
-        self.assertIn("your message has been received", message.replies[0])
-        self.assertIn("reply generation failed", output.getvalue())
-
-    def test_follow_up_receives_previous_turns(self) -> None:
-        agent = StubReplyAgent()
-        handler = build_handler(agent)
-
-        with redirect_stdout(StringIO()):
-            handler(FakeMessage("email", "What does Pro include?"))
-            handler(FakeMessage("email", "Would that help four people?"))
-
-        self.assertEqual(agent.histories[0], [])
-        self.assertEqual(
-            agent.histories[1],
-            [
-                {"role": "user", "content": "What does Pro include?"},
-                {"role": "assistant", "content": "Helpful reply on email"},
-            ],
-        )
-
-    def test_different_conversations_do_not_share_context(self) -> None:
-        agent = StubReplyAgent()
-        handler = build_handler(agent)
-
-        with redirect_stdout(StringIO()):
-            handler(FakeMessage("email", conversation_id="customer-a"))
-            handler(FakeMessage("email", conversation_id="customer-b"))
-
-        self.assertEqual(agent.histories, [[], []])
-
+    def test_one_handler_serves_both_channels(self):
+        agent=StubReplyAgent(); handler=build_handler(agent)
+        email,telegram=FakeMessage("email"),FakeMessage("telegram")
+        with redirect_stdout(StringIO()): handler(email); handler(telegram)
+        self.assertEqual(agent.channels,["email","telegram"])
+    def test_failure_sends_safe_fallback(self):
+        message=FakeMessage("email")
+        with redirect_stdout(StringIO()): build_handler(FailingReplyAgent())(message)
+        self.assertIn("message has been received",message.replies[0])
+    def test_context_is_remembered(self):
+        agent=StubReplyAgent(); handler=build_handler(agent)
+        with redirect_stdout(StringIO()): handler(FakeMessage("email",text="First")); handler(FakeMessage("email",text="Second"))
+        self.assertEqual(agent.histories[1][0]["content"],"First")
+    def test_telegram_rejects_non_owner(self):
+        message=FakeMessage("telegram",sender="intruder")
+        with redirect_stdout(StringIO()): build_handler(StubReplyAgent(),owner_telegram_username="@owner")(message)
+        self.assertEqual(message.replies,["This is a private career-agent channel."])
+    def test_email_notifies_known_owner_conversation(self):
+        client=FakeCaspianClient(); handler=build_handler(StubReplyAgent(),client=client,owner_telegram_username="@owner")
+        with redirect_stdout(StringIO()): handler(FakeMessage("telegram",sender="@owner",conversation_id="owner-chat")); handler(FakeMessage("email"))
+        self.assertEqual(client.sent[0][0],"owner-chat")
 
 class ChannelConnectionTests(unittest.TestCase):
-    def test_email_remains_available_when_telegram_fails(self) -> None:
-        client = FakeCaspianClient(
-            telegram_error=RuntimeError("Telegram unavailable")
-        )
-
-        with redirect_stdout(StringIO()) as output:
-            connected = connect_available_channels(client, FAKE_SETTINGS)
-
-        self.assertEqual(set(connected), {"email"})
-        self.assertIn("Telegram", output.getvalue())
-
-    def test_startup_fails_when_both_channels_fail(self) -> None:
-        client = FakeCaspianClient(
-            email_error=RuntimeError("Email unavailable"),
-            telegram_error=RuntimeError("Telegram unavailable"),
-        )
-
-        with redirect_stdout(StringIO()):
-            with self.assertRaises(RuntimeError):
-                connect_available_channels(client, FAKE_SETTINGS)
-
+    def test_email_survives_telegram_failure(self):
+        with redirect_stdout(StringIO()): connected=connect_available_channels(FakeCaspianClient(telegram_error=RuntimeError("down")),SETTINGS)
+        self.assertEqual(set(connected),{"email"})
+    def test_both_fail_stops_startup(self):
+        with redirect_stdout(StringIO()), self.assertRaises(RuntimeError): connect_available_channels(FakeCaspianClient(RuntimeError("down"),RuntimeError("down")),SETTINGS)
 
 class ConversationMemoryTests(unittest.TestCase):
-    def test_history_is_bounded_to_recent_messages(self) -> None:
-        memory = ConversationMemory(max_messages=2)
-        memory.add("conversation-1", "user", "first")
-        memory.add("conversation-1", "assistant", "second")
-        memory.add("conversation-1", "user", "third")
+    def test_history_is_bounded(self):
+        memory=ConversationMemory(max_messages=2); memory.add("c","user","one"); memory.add("c","assistant","two"); memory.add("c","user","three")
+        self.assertEqual([m["content"] for m in memory.history("c")],["two","three"])
 
-        self.assertEqual(
-            memory.history("conversation-1"),
-            [
-                {"role": "assistant", "content": "second"},
-                {"role": "user", "content": "third"},
-            ],
-        )
-
-
-if __name__ == "__main__":
-    unittest.main()
+if __name__ == "__main__": unittest.main()
