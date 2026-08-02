@@ -28,6 +28,16 @@ class KnowledgeRetrieverTests(unittest.TestCase):
         self.assertIn("skills.md#Data Science", result.sources)
         self.assertIn("Python, SQL", result.context)
 
+    def test_greeting_retrieves_no_knowledge(self):
+        result = KnowledgeRetriever(self.root, self.index).search("hey")
+        self.assertEqual(result.sources, ())
+
+    def test_unrelated_work_request_retrieves_no_knowledge(self):
+        result = KnowledgeRetriever(self.root, self.index).search(
+            "solve this poker algorithm"
+        )
+        self.assertEqual(result.sources, ())
+
     def test_recruiter_cannot_retrieve_owner_only_chunk(self):
         retriever = KnowledgeRetriever(self.root, self.index)
         result = retriever.search("minimum compensation target", audience="recruiter")

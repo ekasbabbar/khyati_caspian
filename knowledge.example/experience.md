@@ -1,3 +1,12 @@
+---
+visibility: recruiter
+approval_required: false
+document_type: experience
+topics: software engineering internship, LLM evaluation, regression testing
+description: Example verified employment experience and outcomes
+last_updated: 2026-08-02
+---
+
 # Experience
 
 ## Software Engineering Intern — Example Labs

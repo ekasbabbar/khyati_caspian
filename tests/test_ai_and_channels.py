@@ -12,7 +12,7 @@ from channels import build_handler, connect_available_channels
 from conversation_memory import ConversationMemory
 from intent_agent import IntentAgent
 from models import CareerDecision, InteractionEvent, RecruiterLead
-from reply_agent import ReplyAgent
+from reply_agent import ReplyAgent, _clean_email_message, _clean_model_reply
 from knowledge_retriever import RetrievalResult
 
 def sample_lead():
@@ -73,6 +73,14 @@ class ReplyAgentTests(unittest.TestCase):
     def test_returns_model_text(self):
         agent=ReplyAgent(api_key="test",model="test",client=FakeOpenAI(FakeCompletions(reply="Verified project details.")))
         self.assertEqual(agent.respond("Tell me more","email"),"Verified project details.")
+    def test_system_prompt_requires_truthful_advocacy(self):
+        completions=FakeCompletions(reply="Strong, grounded answer")
+        agent=ReplyAgent(api_key="test",model="test",client=FakeOpenAI(completions))
+        agent.respond("Would this candidate fit?","email")
+        prompt=completions.last_kwargs["messages"][0]["content"]
+        self.assertIn("active advocate",prompt)
+        self.assertIn("strongest truthful light",prompt)
+        self.assertIn("concrete",prompt)
     def test_knowledge_and_channel_role_reach_model(self):
         completions=FakeCompletions(reply="Assessment")
         agent=ReplyAgent(api_key="test",model="test",client=FakeOpenAI(completions),retriever=StubRetriever())
@@ -90,6 +98,12 @@ class ReplyAgentTests(unittest.TestCase):
         agent=ReplyAgent(api_key="test",model="test",client=FakeOpenAI(completions),retriever=retriever)
         with redirect_stdout(StringIO()): agent.respond("role","email"); agent.respond("role","telegram")
         self.assertEqual(retriever.audiences,["recruiter","owner"])
+    def test_email_signature_is_removed_before_retrieval(self):
+        cleaned=_clean_email_message("Tell me about AI agents.\n\nBest regards,\nRecruiter\nIIT Guwahati")
+        self.assertEqual(cleaned,"Tell me about AI agents.")
+    def test_subject_and_signature_are_removed_from_model_reply(self):
+        cleaned=_clean_model_reply("Subject: Re: AI work\n\nDirect answer.\n\nBest regards,\nKhyati")
+        self.assertEqual(cleaned,"Direct answer.")
     def test_concurrency_is_bounded(self):
         completions=TrackingCompletions(); agent=ReplyAgent(api_key="test",model="test",client=FakeOpenAI(completions),max_concurrent=2)
         with ThreadPoolExecutor(max_workers=6) as pool: replies=list(pool.map(lambda _:agent.respond("Help","telegram"),range(6)))

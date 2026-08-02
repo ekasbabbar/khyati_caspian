@@ -8,6 +8,10 @@ Khyati is explicit about being an AI representative. It does not invent career
 facts, negotiate compensation, accept interviews, or make commitments without
 the candidate's approval.
 
+Its central product principle is active, truthful advocacy: Khyati identifies
+the candidate's strongest verified fit, communicates it persuasively, and moves
+legitimate recruiter interest toward a concrete next step.
+
 ## Product flow
 
 ```text
@@ -21,7 +25,9 @@ the hackathon's two-channel requirement.
 ## What it does
 
 - Retrieves only relevant Markdown/text sections for each recruiter question.
+- Uses two-stage retrieval: relevant files first, then relevant sections.
 - Uses hybrid BM25-style ranking plus career-concept expansion.
+- Skips retrieval for greetings and unrelated task requests.
 - Persists the local chunk index in ignored SQLite storage.
 - Enforces recruiter versus owner visibility before context reaches the model.
 - Separates public demo knowledge from private personal information.
@@ -99,7 +105,10 @@ Files may begin with metadata controlling retrieval:
 ---
 visibility: recruiter
 approval_required: false
+document_type: project
 topics: python, analytics, data science
+description: Verified analytics project and measurable outcomes
+last_updated: 2026-08-02
 ---
 ```
 
@@ -107,6 +116,8 @@ Supported visibility values are `public`, `recruiter`, and `owner_only`.
 Recruiter email retrieval can never select `owner_only` chunks; authenticated
 owner Telegram retrieval can. Put sensitive decision context in separate
 `owner_only` files because visibility currently applies at file level.
+`document_type`, `topics`, and `description` improve ranking; `last_updated`
+helps you audit freshness. Update dates manually when facts change.
 
 The index is rebuilt automatically when a knowledge file changes. Override its
 ignored local location with `KHYATI_KNOWLEDGE_INDEX` if needed.
@@ -168,6 +179,9 @@ Telegram summary when that owner conversation is available.
 - Career answers must be grounded in the configured knowledge files.
 - Only the top relevant chunks are sent to the model, and retrieved source
   names are printed in the terminal for auditability.
+- Specific questions normally retrieve from one or two files; broad background
+  requests may use up to three files. Weak matches below the absolute/relative
+  relevance thresholds are discarded.
 - Interview scheduling, compensation, references, and private contact details
   require owner involvement.
 - Telegram sender authorization is enforced in code, not only in a prompt.

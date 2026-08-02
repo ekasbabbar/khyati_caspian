@@ -15,6 +15,27 @@ from typing import Iterable
 
 TOKEN_PATTERN = re.compile(r"[a-z0-9+#.]+")
 HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
+STOPWORDS = {
+    "a", "about", "am", "an", "and", "are", "as", "at", "be", "can",
+    "could", "do", "does", "for", "from", "he", "her", "him", "his",
+    "i", "in", "is", "it", "me", "of", "on", "or", "please", "she",
+    "tell", "that", "the", "their", "them", "they", "this", "to", "us",
+    "was", "what", "when", "where", "which", "who", "why", "with", "would",
+    "you", "your",
+}
+NO_RETRIEVAL_MESSAGES = {
+    "hello", "hi", "hey", "thanks", "thank you", "okay", "ok", "cool",
+    "good morning", "good afternoon", "good evening", "bye", "goodbye",
+}
+UNRELATED_TASK_TERMS = {
+    "solve", "solution", "homework", "assignment", "leetcode", "algorithm",
+    "debug", "translate", "essay", "recipe", "poker", "array",
+}
+CAREER_CONTEXT_TERMS = {
+    "candidate", "ekas", "recruiter", "role", "job", "intern", "internship",
+    "experience", "skill", "skills", "project", "resume", "cv", "hire",
+    "hiring", "fit", "qualified", "qualification", "background",
+}
 
 # Small domain vocabulary bridges recruiter language and resume terminology.
 # This is deterministic, inspectable, and complements exact keyword ranking.
@@ -27,9 +48,16 @@ CONCEPTS: dict[str, tuple[str, ...]] = {
     "backend": ("api", "fastapi", "database", "sql", "server", "python"),
     "machine learning": ("ml", "pytorch", "scikit-learn", "models", "data", "ai"),
     "artificial intelligence": ("ai", "machine learning", "llm", "agents", "models"),
+    "ai agent": ("agents", "agentic", "llm", "rag", "retrieval", "caspian", "gemini", "automation"),
+    "ai agents": ("agent", "agentic", "llm", "rag", "retrieval", "caspian", "gemini", "automation"),
     "software engineer": ("programming", "backend", "frontend", "api", "git", "projects"),
+    "algorithm": ("algorithms", "c++", "data structures", "competitive programming", "problem solving"),
+    "algorithms": ("algorithm", "c++", "data structures", "competitive programming", "problem solving"),
     "availability": ("start", "summer", "remote", "relocate", "internship", "schedule"),
     "compensation": ("salary", "pay", "stipend", "offer", "negotiate"),
+    "background": ("profile", "education", "experience", "skills", "projects"),
+    "candidate": ("profile", "education", "experience", "skills", "projects"),
+    "resume": ("profile", "education", "experience", "skills", "projects"),
 }
 
 
@@ -76,7 +104,14 @@ def _split_markdown(source: str, text: str, max_chars: int = 2_000) -> list[Know
     if visibility not in {"public", "recruiter", "owner_only"}:
         raise ValueError(f"Invalid visibility '{visibility}' in {source}")
     approval = metadata.get("approval_required", "false").lower() in {"1", "true", "yes"}
-    topics = tuple(part.strip().lower() for part in metadata.get("topics", "").split(",") if part.strip())
+    topic_values = [part.strip().lower() for part in metadata.get("topics", "").split(",") if part.strip()]
+    # These descriptive fields also participate in ranking without being sent
+    # as claims to the model.
+    topic_values.extend(
+        value.lower() for key in ("document_type", "description")
+        if (value := metadata.get(key))
+    )
+    topics = tuple(topic_values)
 
     sections: list[tuple[str, list[str]]] = []
     heading = Path(source).stem.replace("_", " ").title()
@@ -181,17 +216,33 @@ class KnowledgeRetriever:
             rows = connection.execute(f"SELECT * FROM chunks WHERE visibility IN ({placeholders})", allowed).fetchall()
         return [KnowledgeChunk(r["id"], r["source"], r["heading"], r["text"], r["visibility"], bool(r["approval_required"]), tuple(json.loads(r["topics"]))) for r in rows]
 
-    def search(self, query: str, audience: str = "recruiter", limit: int = 5, max_characters: int = 7_000) -> RetrievalResult:
+    def search(
+        self,
+        query: str,
+        audience: str = "recruiter",
+        limit: int = 4,
+        max_characters: int = 4_500,
+        min_score: float = 1.25,
+        max_files: int = 3,
+    ) -> RetrievalResult:
         if audience not in {"recruiter", "owner"}:
             raise ValueError("audience must be recruiter or owner")
         chunks = self._allowed_chunks(audience)
-        query_lower = query.lower()
-        query_terms = _tokens(query)
+        query_lower = " ".join(query.lower().split())
+        if query_lower.strip(".!?, ") in NO_RETRIEVAL_MESSAGES:
+            return RetrievalResult("", (), ())
+        raw_terms = set(_tokens(query))
+        if raw_terms & UNRELATED_TASK_TERMS and not raw_terms & CAREER_CONTEXT_TERMS:
+            return RetrievalResult("", (), ())
+        broad_query = bool(raw_terms & {"background", "resume", "cv", "overview"})
+        query_terms = [term for term in raw_terms if term not in STOPWORDS]
         for phrase, related in CONCEPTS.items():
             phrase_terms = set(_tokens(phrase))
             if phrase in query_lower or phrase_terms.issubset(set(query_terms)):
                 query_terms.extend(term for item in related for term in _tokens(item))
         query_set = set(query_terms)
+        if not query_set:
+            return RetrievalResult("", (), ())
 
         tokenized = [_tokens(f"{c.heading} {' '.join(c.topics)} {c.text}") for c in chunks]
         document_frequency = {term: sum(term in set(doc) for doc in tokenized) for term in query_set}
@@ -207,6 +258,10 @@ class KnowledgeRetriever:
                 score += inverse * frequency * 2.2 / (frequency + 1.2 * (0.25 + 0.75 * len(document) / max(average_length, 1)))
             title_tokens = set(_tokens(f"{chunk.source} {chunk.heading} {' '.join(chunk.topics)}"))
             score += 1.5 * len(query_set & title_tokens)
+            topic_text = " ".join(chunk.topics).lower()
+            for phrase in CONCEPTS:
+                if phrase in query_lower and phrase in topic_text:
+                    score += 7.0
             normalized_heading = " ".join(_tokens(chunk.heading))
             normalized_source = " ".join(_tokens(Path(chunk.source).stem))
             if normalized_heading and normalized_heading in query_lower:
@@ -217,9 +272,31 @@ class KnowledgeRetriever:
                 scored.append((score, chunk))
         scored.sort(key=lambda item: (-item[0], item[1].source, item[1].heading))
 
+        if not scored or scored[0][0] < min_score:
+            return RetrievalResult("", (), ())
+
+        # Stage one chooses files. A specific query normally yields one file;
+        # broad queries may use up to max_files when their scores are competitive.
+        best_score = scored[0][0]
+        relative_cutoff = max(min_score, best_score * (0.22 if broad_query else 0.38))
+        if broad_query:
+            limit = max(limit, 5)
+        file_scores: dict[str, float] = {}
+        for score, chunk in scored:
+            if score < relative_cutoff:
+                continue
+            file_scores[chunk.source] = max(file_scores.get(chunk.source, 0.0), score)
+        selected_files = {
+            source for source, _ in sorted(
+                file_scores.items(), key=lambda item: (-item[1], item[0])
+            )[:max_files]
+        }
+
         selected: list[KnowledgeChunk] = []
         used = 0
-        for _, chunk in scored[: max(limit * 3, limit)]:
+        for score, chunk in scored:
+            if score < relative_cutoff or chunk.source not in selected_files:
+                continue
             rendered = self._render(chunk)
             if selected and used + len(rendered) > max_characters:
                 continue

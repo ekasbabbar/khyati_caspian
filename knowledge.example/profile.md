@@ -1,3 +1,12 @@
+---
+visibility: public
+approval_required: false
+document_type: profile
+topics: Alex Morgan, biography, location, portfolio, professional interests
+description: Fictional public candidate profile for repository demonstrations
+last_updated: 2026-08-02
+---
+
 # Candidate profile
 
 - Name: Alex Morgan

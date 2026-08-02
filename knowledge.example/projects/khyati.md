@@ -1,3 +1,12 @@
+---
+visibility: public
+approval_required: false
+document_type: project
+topics: Khyati, AI agent, RAG, Caspian, Gemini, email, Telegram
+description: Public example project summary for the Khyati career representative
+last_updated: 2026-08-02
+---
+
 # Khyati
 
 Khyati is a grounded personal career representative built for the Caspian AI

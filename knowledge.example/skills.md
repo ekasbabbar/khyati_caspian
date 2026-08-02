@@ -1,3 +1,12 @@
+---
+visibility: recruiter
+approval_required: false
+document_type: skills
+topics: Python, C++, TypeScript, FastAPI, PostgreSQL, AI, retrieval
+description: Example verified technical skills and proficiency boundaries
+last_updated: 2026-08-02
+---
+
 # Skills
 
 - Languages: Python, C++, TypeScript
