@@ -6,6 +6,7 @@ from time import perf_counter
 from config import get_settings
 from event_store import EventStore
 from intent_agent import IntentAgent
+from llm_provider import build_provider_chain
 from messaging_agent import MessagingAgent
 from utils import print_decision, print_timeline
 
@@ -24,13 +25,11 @@ def main() -> None:
     print_timeline(lead)
 
     print("\nAnalyzing recruiter intent...")
-    agent = IntentAgent(
-        api_key=settings.llm_api_key if settings.use_llm else None,
-        model=settings.llm_model,
-        base_url=settings.llm_base_url,
-        provider=settings.llm_provider,
-        timeout_seconds=settings.llm_timeout_seconds,
-    )
+    provider_chain = None
+    if settings.use_llm and (settings.featherless_api_key or settings.gemini_api_key):
+        provider_chain = build_provider_chain(settings)
+        print(f"LLM provider order: {' -> '.join(provider_chain.provider_names)}")
+    agent = IntentAgent(client=provider_chain)
     analysis_started = perf_counter()
     decision = agent.analyze(lead)
     print(f"Brain: {agent.last_source} ({perf_counter() - analysis_started:.2f}s)")

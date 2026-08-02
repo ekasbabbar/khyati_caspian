@@ -161,19 +161,28 @@ class IntentAgent:
             return self._fallback.analyze(lead)
 
         try:
-            response = self._client.chat.completions.create(
-                model=self._model,
-                messages=[
+            request = {
+                "model": self._model,
+                "messages": [
                     {"role": "system", "content": INTENT_SYSTEM_PROMPT},
                     {"role": "user", "content": lead.model_dump_json(indent=2)},
                 ],
-                response_format={"type": "json_object"},
+                "response_format": {"type": "json_object"},
+            }
+
+            def validate(response):
+                content = response.choices[0].message.content
+                if not content:
+                    raise ValueError("LLM returned an empty career decision")
+                return CareerDecision.model_validate(json.loads(content))
+
+            if hasattr(self._client, "create_validated"):
+                decision = self._client.create_validated(validate, **request)
+            else:
+                decision = validate(self._client.chat.completions.create(**request))
+            self.last_source = (
+                getattr(self._client, "last_provider", None) or self._provider
             )
-            content = response.choices[0].message.content
-            if not content:
-                raise ValueError("LLM returned an empty career decision")
-            decision = CareerDecision.model_validate(json.loads(content))
-            self.last_source = self._provider
             return decision
         except Exception:
             logger.exception("LLM recruiter analysis failed; using rule fallback")

@@ -42,6 +42,16 @@ class Settings:
     llm_base_url: str | None = None
     llm_timeout_seconds: float = 60.0
     llm_max_concurrent: int = 2
+    featherless_api_key: str | None = None
+    featherless_model: str = "Qwen/Qwen3-32B"
+    featherless_base_url: str = "https://api.featherless.ai/v1"
+    featherless_timeout_seconds: float = 15.0
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-3.5-flash-lite"
+    gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
+    gemini_timeout_seconds: float = 12.0
+    llm_circuit_failure_threshold: int = 3
+    llm_circuit_cooldown_seconds: float = 60.0
     use_llm: bool = True
     caspian_api_key: str | None = None
     caspian_base_url: str = "https://api.trycaspianai.com"
@@ -111,6 +121,27 @@ def get_settings() -> Settings:
         llm_base_url=os.getenv("LLM_BASE_URL") or default_base_url,
         llm_timeout_seconds=float(os.getenv("LLM_TIMEOUT_SECONDS", "60")),
         llm_max_concurrent=int(os.getenv("LLM_MAX_CONCURRENT", "2")),
+        featherless_api_key=os.getenv("FEATHERLESS_API_KEY"),
+        featherless_model=os.getenv("FEATHERLESS_MODEL", "Qwen/Qwen3-32B"),
+        featherless_base_url=os.getenv(
+            "FEATHERLESS_BASE_URL", "https://api.featherless.ai/v1"
+        ),
+        featherless_timeout_seconds=float(
+            os.getenv("FEATHERLESS_TIMEOUT_SECONDS", "15")
+        ),
+        gemini_api_key=os.getenv("GEMINI_API_KEY"),
+        gemini_model=os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite"),
+        gemini_base_url=os.getenv(
+            "GEMINI_BASE_URL",
+            "https://generativelanguage.googleapis.com/v1beta/openai/",
+        ),
+        gemini_timeout_seconds=float(os.getenv("GEMINI_TIMEOUT_SECONDS", "12")),
+        llm_circuit_failure_threshold=int(
+            os.getenv("LLM_CIRCUIT_FAILURE_THRESHOLD", "3")
+        ),
+        llm_circuit_cooldown_seconds=float(
+            os.getenv("LLM_CIRCUIT_COOLDOWN_SECONDS", "60")
+        ),
         use_llm=os.getenv("KHYATI_USE_LLM", "true").lower()
         in {"1", "true", "yes", "on"},
         caspian_api_key=os.getenv("CASPIAN_API_KEY"),

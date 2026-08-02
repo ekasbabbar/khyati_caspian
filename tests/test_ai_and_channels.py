@@ -121,6 +121,11 @@ class ReplyAgentTests(unittest.TestCase):
     def test_subject_and_signature_are_removed_from_model_reply(self):
         cleaned=_clean_model_reply("Subject: Re: AI work\n\nDirect answer.\n\nBest regards,\nKhyati")
         self.assertEqual(cleaned,"Direct answer.")
+    def test_model_reasoning_is_removed_from_reply(self):
+        cleaned=_clean_model_reply("<think>private reasoning</think>\nUseful answer")
+        self.assertEqual(cleaned,"Useful answer")
+    def test_unterminated_reasoning_is_rejected(self):
+        self.assertEqual(_clean_model_reply("<think>unfinished reasoning"),"")
     def test_multi_question_email_is_decomposed(self):
         questions=_retrieval_queries(
             "Could you tell me:\nWho is Ekas?\nWhat has he built?\nWhy is he a fit?"

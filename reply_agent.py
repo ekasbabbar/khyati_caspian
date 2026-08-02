@@ -101,6 +101,11 @@ def _clean_email_message(text: str) -> str:
 
 def _clean_model_reply(reply: str) -> str:
     """Enforce body-only output when a provider ignores formatting policy."""
+    reply = re.sub(r"(?is)<think>.*?</think>\s*", "", reply)
+    # An unterminated reasoning block is not a usable external response. The
+    # validator will reject the resulting empty text and try the next provider.
+    if re.match(r"(?is)^\s*<think>", reply):
+        return ""
     reply = re.sub(r"(?is)^\s*subject\s*:[^\n]*\n+", "", reply, count=1)
     reply = re.split(
         r"(?im)^\s*(?:best regards|kind regards|regards|sincerely),?\s*$",
@@ -230,12 +235,26 @@ class ReplyAgent:
                 ),
             }
         )
+        def validate(response):
+            value = _clean_model_reply(response.choices[0].message.content or "")
+            if not value:
+                raise ValueError("LLM returned an empty reply")
+            return value
+
         with self._model_slots:
-            response = self._client.chat.completions.create(
-                model=self._model,
-                messages=messages,
-            )
-        reply = _clean_model_reply(response.choices[0].message.content or "")
-        if not reply:
-            raise ValueError("LLM returned an empty reply")
+            if hasattr(self._client, "create_validated"):
+                reply = self._client.create_validated(
+                    validate,
+                    model=self._model,
+                    messages=messages,
+                )
+            else:
+                response = self._client.chat.completions.create(
+                    model=self._model,
+                    messages=messages,
+                )
+                reply = validate(response)
+        provider = getattr(self._client, "last_provider", None)
+        if provider:
+            print(f"   LLM served by: {provider}")
         return reply

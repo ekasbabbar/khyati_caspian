@@ -9,6 +9,7 @@ from approval_store import ApprovalStore, PendingApproval
 from config import get_settings
 from conversation_memory import ConversationMemory
 from knowledge_retriever import KnowledgeRetriever
+from llm_provider import build_provider_chain
 from outbound_store import OutboundDraftStore
 from reply_agent import ReplyAgent
 
@@ -451,8 +452,8 @@ def main() -> None:
     settings = get_settings()
     if not settings.caspian_api_key:
         raise RuntimeError("Set CASPIAN_API_KEY in .env before running channels.py")
-    if not settings.llm_api_key:
-        raise RuntimeError("Set the selected provider's API key in .env")
+    if not settings.featherless_api_key and not settings.gemini_api_key:
+        raise RuntimeError("Set FEATHERLESS_API_KEY or GEMINI_API_KEY in .env")
     if not settings.owner_telegram_username:
         raise RuntimeError(
             "Set KHYATI_OWNER_TELEGRAM_USERNAME in .env to secure Telegram."
@@ -483,14 +484,15 @@ def main() -> None:
         )
         behavior_prompt = ""
 
+    provider_chain = build_provider_chain(settings)
+    print(f"LLM provider order: {' -> '.join(provider_chain.provider_names)}")
     reply_agent = ReplyAgent(
-        api_key=settings.llm_api_key,
-        model=settings.llm_model,
-        base_url=settings.llm_base_url,
-        timeout_seconds=settings.llm_timeout_seconds,
+        api_key="provider-chain",
+        model="provider-chain",
         max_concurrent=settings.llm_max_concurrent,
         behavior_prompt=behavior_prompt,
         retriever=retriever,
+        client=provider_chain,
     )
     owner_registry = OwnerChannelRegistry(settings.owner_channel_state_path)
     approval_store = ApprovalStore(settings.approval_state_path)

@@ -1,7 +1,7 @@
 # Khyati
 
 Khyati is a personal AI career representative. Recruiters can email Khyati to
-learn about a candidate from a verified private knowledge base; sensitive
+learn about a candidate from a verified local knowledge base; sensitive
 requests are escalated to the candidate through a private Telegram channel.
 
 Khyati is explicit about being an AI representative. It does not invent career
@@ -15,8 +15,8 @@ legitimate recruiter interest toward a concrete next step.
 ## Product flow
 
 ```text
-Recruiter Email → Caspian → grounded AI reply
-                         ↘ private Telegram update → candidate
+Recruiter Email -> Caspian -> grounded AI reply
+                         \-> private Telegram update -> candidate
 ```
 
 Email and Telegram are connected through one Caspian message handler, satisfying
@@ -37,21 +37,30 @@ the hackathon's two-channel requirement.
   another time from Telegram.
 - Keeps bounded, isolated context for each conversation.
 - Limits concurrent model calls and degrades safely when a provider fails.
+- Uses Featherless/Qwen as primary and Gemini as an automatic secondary.
+- Rejects leaked model reasoning and malformed structured output.
 - Locks the Telegram owner channel to one configured username.
 
 ## Architecture
 
 ```text
-knowledge/ → heading chunks → persistent hybrid index
-                                  ↓ relevant, authorized chunks
+knowledge/ -> heading chunks -> persistent hybrid index
+                                  | relevant, authorized chunks
+                                  v
                               ReplyAgent
-                                  ↑
-Recruiter Email → Caspian single handler → Email reply
-                                  ↓
+                                  ^
+Recruiter Email -> Caspian single handler -> Email reply
+                                  |
+                                  v
                          Owner Telegram alert
 
-sample_events.json → EventStore → IntentAgent → CareerDecision → preview
-                                      ↘ five-rule fallback
+Featherless/Qwen -> Gemini -> safe response fallback
+
+sample_events.json -> EventStore -> IntentAgent -> CareerDecision -> preview
+                                      \-> five-rule fallback
+
+Interview request -> persistent approval -> Telegram owner command
+                                      \-> original recruiter email thread
 ```
 
 ## Quick start
@@ -86,14 +95,15 @@ default source when present:
 
 ```text
 knowledge/
-├── profile.md
-├── experience.md
-├── education.md
-├── skills.md
-├── availability.md
-├── preferences.md
-└── projects/
-    └── khyati.md
+|-- profile.md
+|-- experience.md
+|-- education.md
+|-- skills.md
+|-- availability.md
+|-- preferences.md
+|-- private_notes.md
+`-- projects/
+    `-- khyati.md
 ```
 
 Fill these files with concise, verifiable facts. Do not include credentials,
@@ -129,20 +139,46 @@ In a fresh clone without a local folder, Khyati safely loads
 
 ## Configure the LLM
 
-Gemini's OpenAI-compatible endpoint is the default:
+Featherless is the primary provider and Gemini is the automatic secondary:
 
 ```dotenv
 KHYATI_USE_LLM=true
-LLM_PROVIDER=gemini
-LLM_MODEL=gemini-3.5-flash-lite
-GEMINI_API_KEY=your_key
+FEATHERLESS_API_KEY=your_featherless_key
+FEATHERLESS_MODEL=Qwen/Qwen3-32B
+FEATHERLESS_BASE_URL=https://api.featherless.ai/v1
+FEATHERLESS_TIMEOUT_SECONDS=15
+GEMINI_API_KEY=your_gemini_key
+GEMINI_MODEL=gemini-3.5-flash-lite
+GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
+GEMINI_TIMEOUT_SECONDS=12
 LLM_MAX_CONCURRENT=2
+LLM_CIRCUIT_FAILURE_THRESHOLD=3
+LLM_CIRCUIT_COOLDOWN_SECONDS=60
 ```
 
-DeepSeek and OpenAI are also supported through the corresponding provider and
-API-key variables. Intent analysis falls back to five conservative rules if the
-model is missing or unavailable. Live conversational replies use a safe
-acknowledgement if generation fails.
+Each provider uses its own deadline with SDK retries disabled. After repeated
+failures, a short circuit breaker prevents calls to the unhealthy provider.
+Intent analysis falls back to five conservative rules if both providers fail;
+live replies use a safe acknowledgement. Runtime logs identify which provider
+served each response.
+
+Qwen 3 thinking mode is disabled through Featherless chat-template options.
+Khyati also strips complete `<think>...</think>` blocks and rejects incomplete
+reasoning output, causing Gemini failover instead of exposing private reasoning.
+
+Verify the live provider chain before starting the channels:
+
+```bash
+python provider_check.py
+```
+
+Expected output:
+
+```text
+Provider order: featherless -> gemini
+Served by: featherless
+Response: OK
+```
 
 ## Connect Caspian Email and Telegram
 
@@ -157,9 +193,15 @@ Create a Telegram bot with `@BotFather`, then configure `.env`:
 
 ```dotenv
 CASPIAN_API_KEY=your_caspian_key
+CASPIAN_BASE_URL=https://api.trycaspianai.com
 CASPIAN_EMAIL_USERNAME=khyati-yourname
 TELEGRAM_BOT_TOKEN=your_bot_token
 KHYATI_OWNER_TELEGRAM_USERNAME=@your_username
+
+KHYATI_OWNER_CHANNEL_STATE=.khyati/owner_channel.json
+KHYATI_APPROVAL_STATE=.khyati/pending_approvals.json
+KHYATI_OUTBOUND_STATE=.khyati/outbound_drafts.json
+KHYATI_EMAIL_THREAD_STATE=.khyati/email_threads.json
 ```
 
 Start the live two-channel agent:
@@ -224,11 +266,11 @@ the address has emailed before. A genuinely new address requires Caspian's
 
 No system prompt makes an agent immune to prompt injection. A production version
 would also need durable identity mapping, encrypted persistent memory,
-idempotency, audit logs, and explicit approval actions.
+idempotency, and comprehensive audit logs.
 
 ## Tests
 
-All tests are offline and send no real messages:
+All 51 tests are offline and send no real messages:
 
 ```bash
 python -m unittest discover -s tests -q
@@ -240,9 +282,12 @@ python smoke_test.py
 ```text
 app.py                    Local recruiter-intent preview
 channels.py               Caspian Email + Telegram runtime
+llm_provider.py           Featherless/Gemini failover and circuit breaker
 knowledge_retriever.py    Persistent hybrid retrieval and privacy filtering
 reply_agent.py            Grounded recruiter/owner conversation agent
 intent_agent.py           LLM classifier + five-rule fallback
+approval_store.py         Persistent interview approval state
+outbound_store.py         Confirm-before-send outbound drafts
 models.py                 Recruiter, event, and decision models
 event_store.py            Demo interaction loader
 conversation_memory.py    Bounded per-thread context
@@ -257,6 +302,7 @@ tests/                    Offline regression tests
 - Owner Telegram registration is local to one deployment; moving Khyati to a
   new machine requires messaging the bot once on that deployment.
 - Conversation memory is not persistent.
+- Provider circuit-breaker state is process-local and resets after restart.
 - `app.py` previews decisions; only `channels.py` communicates through Caspian.
 - Attachments are not parsed into trusted knowledge.
 - Retrieval currently uses inspectable lexical/concept ranking rather than
