@@ -300,9 +300,8 @@ tests/                    Offline regression tests
 
 ## Prototype limitations
 
-- Owner Telegram registration is local to one deployment; moving Khyati to a
-  new machine requires messaging the gateway once on that deployment.
-- Conversation memory is not persistent.
+- Without `DATABASE_URL`, owner registration and conversation memory are local
+  to one process/deployment. PostgreSQL production mode persists both.
 - Provider circuit-breaker state is process-local and resets after restart.
 - `app.py` previews decisions; only `channels.py` communicates through Caspian.
 - Attachments are not parsed into trusted knowledge.
@@ -311,6 +310,53 @@ tests/                    Offline regression tests
   when corpus size or semantic diversity warrants it.
 - Approval updates the recruiter email thread but does not create a calendar
   event; the recruiter is asked to send the invitation and meeting link.
+
+## Production foundation
+
+Khyati now separates product reasoning from transport. `KhyatiService` accepts
+`text`, `audience`, `conversation_id`, and `source`, then returns a stable
+`AgentResponse`. Caspian uses this service today; the portfolio API can use the
+same boundary without duplicating retrieval, prompts, or conversation policy.
+
+Set `DATABASE_URL` to enable PostgreSQL production mode. Startup creates
+idempotent tables for conversation history, owner registration, email threads,
+approvals, outbound drafts, Caspian cursors, processed-event deduplication, and
+audit records. Without `DATABASE_URL`, the existing local development stores
+remain active.
+
+On EC2, private production knowledge should be supplied from S3 through the
+instance IAM role:
+
+```dotenv
+AWS_REGION=ap-south-1
+KHYATI_KNOWLEDGE_S3_BUCKET=your-private-bucket
+KHYATI_KNOWLEDGE_S3_MANIFEST_KEY=current/manifest.json
+```
+
+An authenticated HTTPS manifest remains available as a provider-neutral fallback:
+
+```dotenv
+KHYATI_KNOWLEDGE_MANIFEST_URL=https://private-storage.example/manifest.json
+KHYATI_KNOWLEDGE_MANIFEST_TOKEN=secret_read_token
+KHYATI_KNOWLEDGE_CACHE_DIR=.khyati/knowledge_sources
+```
+
+The format is shown in `knowledge.manifest.example.json`. Each object is checked
+against its SHA-256 digest, paths are traversal-safe, and every document must
+provide `visibility`, `approval_required`, `document_type`, `topics`,
+`description`, and `last_updated` metadata before indexing. The manifest version
+selects an immutable local cache, so a failed update cannot partially replace a
+working knowledge snapshot.
+
+### Always-on AWS EC2 listener
+
+The production listener is designed to run as a hardened `systemd` service on
+an Ubuntu EC2 instance. Deployment assets and the exact setup/update commands
+are in [`deploy/aws/README.md`](deploy/aws/README.md). The listener needs outbound
+network access but exposes no HTTP port; Email and Telegram continue to arrive
+through Caspian polling. Secrets live in `/etc/khyati/khyati.env`, outside the
+Git checkout, and logs are available through `journalctl -u khyati`.
+
 ## Hackathon
 
 Built for Caspian's 15-day AI Agent Hackathon. Khyati uses `caspian-sdk`, runs on

@@ -17,8 +17,8 @@ env/
 data/sample_events.json
 
 # Private career knowledge
-knowledge/
-.khyati/
+/knowledge/
+/.khyati/
 
 # Test and type-checker caches
 .pytest_cache/

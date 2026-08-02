@@ -1,0 +1,35 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PublishKhyatiKnowledge",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:GetObjectVersion",
+        "s3:ListBucket",
+        "s3:GetBucketVersioning"
+      ],
+      "Resource": [
+        "arn:aws:s3:::REPLACE_KHYATI_BUCKET",
+        "arn:aws:s3:::REPLACE_KHYATI_BUCKET/*"
+      ]
+    },
+    {
+      "Sid": "ReloadKhyatiThroughSSM",
+      "Effect": "Allow",
+      "Action": "ssm:SendCommand",
+      "Resource": [
+        "arn:aws:ec2:REPLACE_REGION:REPLACE_ACCOUNT_ID:instance/REPLACE_INSTANCE_ID",
+        "arn:aws:ssm:REPLACE_REGION::document/AWS-RunShellScript"
+      ]
+    },
+    {
+      "Sid": "ReadReloadCommandStatus",
+      "Effect": "Allow",
+      "Action": ["ssm:GetCommandInvocation", "ssm:ListCommandInvocations"],
+      "Resource": "*"
+    }
+  ]
+}

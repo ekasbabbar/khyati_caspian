@@ -1,0 +1,15 @@
+{
+  "version": "2026-08-02T00:00:00Z",
+  "documents": [
+    {
+      "path": "profile.md",
+      "url": "objects/profile.md",
+      "sha256": "replace_with_sha256_of_profile_md"
+    },
+    {
+      "path": "projects/khyati.md",
+      "url": "objects/projects/khyati.md",
+      "sha256": "replace_with_sha256_of_project_file"
+    }
+  ]
+}

@@ -9,6 +9,8 @@ from approval_store import ApprovalStore, PendingApproval
 from config import get_settings
 from conversation_memory import ConversationMemory
 from knowledge_retriever import KnowledgeRetriever
+from khyati import KhyatiService
+from khyati.knowledge import LocalKnowledgeSource, ManifestKnowledgeSource, S3KnowledgeSource
 from llm_provider import build_provider_chain
 from outbound_store import OutboundDraftStore
 from reply_agent import ReplyAgent
@@ -346,6 +348,7 @@ def build_handler(
     outbound_store: OutboundDraftStore | None = None,
     email_connection_id: str | None = None,
     email_threads: EmailThreadRegistry | None = None,
+    service: KhyatiService | None = None,
 ):
     """Build the single normalized handler shared by every Caspian channel."""
     memory = memory or ConversationMemory()
@@ -353,6 +356,7 @@ def build_handler(
     approval_store = approval_store or ApprovalStore()
     outbound_store = outbound_store or OutboundDraftStore()
     email_threads = email_threads or EmailThreadRegistry()
+    service = service or KhyatiService(reply_agent, memory)
     expected_telegram_owner = (owner_telegram_username or "").lstrip("@").lower()
 
     def handle(message) -> None:
@@ -417,11 +421,12 @@ def build_handler(
                 )
 
         try:
-            reply = reply_agent.respond(
+            reply = service.respond(
                 text=text,
-                channel="owner" if is_owner else message.channel,
-                history=memory.history(conversation_id),
-            )
+                audience="owner" if is_owner else "recruiter",
+                conversation_id=conversation_id,
+                source=message.channel,
+            ).answer
         except Exception as error:
             print(f"WARNING: reply generation failed ({error}).")
             fallback = (
@@ -430,13 +435,10 @@ def build_handler(
                 "try again shortly."
             )
             message.reply(fallback)
-            memory.add(conversation_id, "user", text)
-            memory.add(conversation_id, "assistant", fallback)
+            service.record_exchange(conversation_id, text, fallback)
             return
 
         message.reply(reply)
-        memory.add(conversation_id, "user", text)
-        memory.add(conversation_id, "assistant", reply)
         print(f"-> [{message.channel}] {reply}")
 
         owner_conversation_ids = owner_registry.all()
@@ -486,13 +488,30 @@ def main() -> None:
         base_url=settings.caspian_base_url,
     )
     connected = connect_available_channels(client, settings)
+    knowledge_source = (
+        S3KnowledgeSource(
+            settings.knowledge_s3_bucket,
+            settings.knowledge_s3_manifest_key,
+            settings.knowledge_cache_dir,
+            settings.aws_region,
+        )
+        if settings.knowledge_s3_bucket
+        else ManifestKnowledgeSource(
+            settings.knowledge_manifest_url,
+            settings.knowledge_cache_dir,
+            settings.knowledge_manifest_token,
+        )
+        if settings.knowledge_manifest_url
+        else LocalKnowledgeSource(settings.knowledge_dir)
+    )
+    knowledge_directory = knowledge_source.materialize()
     retriever = KnowledgeRetriever(
-        settings.knowledge_dir,
+        knowledge_directory,
         settings.knowledge_index_path,
     )
     print(
         f"Career knowledge indexed: {retriever.chunk_count} chunks from "
-        f"{retriever.source_count} files at {settings.knowledge_dir.resolve()}"
+        f"{retriever.source_count} files at {knowledge_directory.resolve()}"
     )
 
     try:
@@ -514,12 +533,28 @@ def main() -> None:
         retriever=retriever,
         client=provider_chain,
     )
-    owner_registry = OwnerChannelRegistry(settings.owner_channel_state_path)
-    approval_store = ApprovalStore(settings.approval_state_path)
-    outbound_store = OutboundDraftStore(settings.outbound_state_path)
-    email_threads = EmailThreadRegistry(settings.email_thread_state_path)
+    conversation_store = None
+    production_state = None
+    if settings.database_url:
+        from khyati.storage import PostgresState
+
+        production_state = PostgresState(settings.database_url)
+        production_state.initialize()
+        conversation_store = production_state.conversations
+        owner_registry = production_state.owner_channels
+        approval_store = production_state.approvals
+        outbound_store = production_state.outbound_drafts
+        email_threads = production_state.email_threads
+        print("Production state: PostgreSQL")
+    else:
+        owner_registry = OwnerChannelRegistry(settings.owner_channel_state_path)
+        approval_store = ApprovalStore(settings.approval_state_path)
+        outbound_store = OutboundDraftStore(settings.outbound_state_path)
+        email_threads = EmailThreadRegistry(settings.email_thread_state_path)
+        print("Development state: local files and process memory")
+    service = KhyatiService(reply_agent, conversation_store)
     if owner_registry.all():
-        print("Owner conversation(s) restored from local state.")
+        print("Owner conversation restored from persistent state.")
     else:
         print(
             "No owner conversation registered yet. Message the Telegram bot from "
@@ -547,16 +582,24 @@ def main() -> None:
             outbound_store=outbound_store,
             email_connection_id=(connected.get("email") or {}).get("id"),
             email_threads=email_threads,
+            service=service,
         )
     )
     try:
-        client.listen()
+        if production_state:
+            from khyati.caspian_loop import listen_with_postgres_cursor
+
+            listen_with_postgres_cursor(client, production_state.events)
+        else:
+            client.listen()
     except KeyboardInterrupt:
         print("\nKhyati stopped.")
     except Exception as error:
         raise RuntimeError(f"Caspian listener stopped unexpectedly: {error}") from error
     finally:
         client.close()
+        if production_state:
+            production_state.close()
 
 
 if __name__ == "__main__":

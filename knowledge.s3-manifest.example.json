@@ -1,0 +1,10 @@
+{
+  "version": "replace_with_private_knowledge_commit_sha",
+  "documents": [
+    {
+      "path": "profile.md",
+      "key": "releases/replace_with_commit_sha/profile.md",
+      "sha256": "replace_with_sha256_of_profile_md"
+    }
+  ]
+}
