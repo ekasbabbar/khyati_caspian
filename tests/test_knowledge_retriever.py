@@ -56,5 +56,13 @@ class KnowledgeRetrieverTests(unittest.TestCase):
         second = KnowledgeRetriever(self.root, self.index)
         self.assertGreater(second.chunk_count, initial_count)
 
+    def test_multi_question_retrieval_preserves_each_topic(self):
+        retriever = KnowledgeRetriever(self.root, self.index)
+        result = retriever.search_many(
+            ["What data science skills does the candidate have?", "What backend work has the candidate done?"]
+        )
+        self.assertIn("skills.md#Data Science", result.sources)
+        self.assertIn("skills.md#Backend", result.sources)
+
 
 if __name__ == "__main__": unittest.main()

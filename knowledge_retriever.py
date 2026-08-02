@@ -58,6 +58,10 @@ CONCEPTS: dict[str, tuple[str, ...]] = {
     "background": ("profile", "education", "experience", "skills", "projects"),
     "candidate": ("profile", "education", "experience", "skills", "projects"),
     "resume": ("profile", "education", "experience", "skills", "projects"),
+    "who is": ("profile", "biography", "identity", "education", "experience"),
+    "tell me about": ("profile", "biography", "identity", "experience", "projects"),
+    "academic": ("education", "degree", "major", "university", "coursework"),
+    "education": ("degree", "major", "university", "coursework", "academic"),
 }
 
 
@@ -306,6 +310,40 @@ class KnowledgeRetriever:
                 break
         context = "\n\n".join(self._render(chunk) for chunk in selected)
         sources = tuple(dict.fromkeys(f"{chunk.source}#{chunk.heading}" for chunk in selected))
+        return RetrievalResult(context, sources, tuple(selected))
+
+    def search_many(
+        self,
+        queries: list[str],
+        audience: str = "recruiter",
+        limit_per_query: int = 3,
+        max_characters: int = 7_000,
+    ) -> RetrievalResult:
+        """Retrieve evidence for every part of a multi-question message."""
+        selected: list[KnowledgeChunk] = []
+        seen: set[str] = set()
+        used = 0
+        for query in queries:
+            result = self.search(
+                query,
+                audience=audience,
+                limit=limit_per_query,
+                max_characters=max_characters,
+                max_files=2,
+            )
+            for chunk in result.chunks:
+                if chunk.id in seen:
+                    continue
+                rendered = self._render(chunk)
+                if selected and used + len(rendered) > max_characters:
+                    continue
+                selected.append(chunk)
+                seen.add(chunk.id)
+                used += len(rendered)
+        context = "\n\n".join(self._render(chunk) for chunk in selected)
+        sources = tuple(
+            dict.fromkeys(f"{chunk.source}#{chunk.heading}" for chunk in selected)
+        )
         return RetrievalResult(context, sources, tuple(selected))
 
     @staticmethod

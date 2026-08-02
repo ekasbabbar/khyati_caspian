@@ -12,6 +12,10 @@ DATA_DIR: Path = PACKAGE_ROOT / "data"
 LOCAL_KNOWLEDGE_DIR: Path = PACKAGE_ROOT / "knowledge"
 EXAMPLE_KNOWLEDGE_DIR: Path = PACKAGE_ROOT / "knowledge.example"
 DEFAULT_KNOWLEDGE_INDEX: Path = PACKAGE_ROOT / ".khyati" / "knowledge.sqlite3"
+DEFAULT_OWNER_CHANNEL_STATE: Path = PACKAGE_ROOT / ".khyati" / "owner_channel.json"
+DEFAULT_APPROVAL_STATE: Path = PACKAGE_ROOT / ".khyati" / "pending_approvals.json"
+DEFAULT_OUTBOUND_STATE: Path = PACKAGE_ROOT / ".khyati" / "outbound_drafts.json"
+DEFAULT_EMAIL_THREAD_STATE: Path = PACKAGE_ROOT / ".khyati" / "email_threads.json"
 LOCAL_EVENTS_PATH: Path = DATA_DIR / "sample_events.json"
 EXAMPLE_EVENTS_PATH: Path = DATA_DIR / "sample_events.example.json"
 DEFAULT_EVENTS_PATH: Path = (
@@ -28,6 +32,10 @@ class Settings:
     events_path: Path = DEFAULT_EVENTS_PATH
     knowledge_dir: Path = EXAMPLE_KNOWLEDGE_DIR
     knowledge_index_path: Path = DEFAULT_KNOWLEDGE_INDEX
+    owner_channel_state_path: Path = DEFAULT_OWNER_CHANNEL_STATE
+    approval_state_path: Path = DEFAULT_APPROVAL_STATE
+    outbound_state_path: Path = DEFAULT_OUTBOUND_STATE
+    email_thread_state_path: Path = DEFAULT_EMAIL_THREAD_STATE
     llm_provider: str = "gemini"
     llm_api_key: str | None = None
     llm_model: str = "gemini-3.5-flash-lite"
@@ -81,6 +89,21 @@ def get_settings() -> Settings:
         ),
         knowledge_index_path=Path(
             os.getenv("KHYATI_KNOWLEDGE_INDEX", str(DEFAULT_KNOWLEDGE_INDEX))
+        ),
+        owner_channel_state_path=Path(
+            os.getenv(
+                "KHYATI_OWNER_CHANNEL_STATE",
+                str(DEFAULT_OWNER_CHANNEL_STATE),
+            )
+        ),
+        approval_state_path=Path(
+            os.getenv("KHYATI_APPROVAL_STATE", str(DEFAULT_APPROVAL_STATE))
+        ),
+        outbound_state_path=Path(
+            os.getenv("KHYATI_OUTBOUND_STATE", str(DEFAULT_OUTBOUND_STATE))
+        ),
+        email_thread_state_path=Path(
+            os.getenv("KHYATI_EMAIL_THREAD_STATE", str(DEFAULT_EMAIL_THREAD_STATE))
         ),
         llm_provider=provider,
         llm_api_key=os.getenv("LLM_API_KEY") or provider_key,

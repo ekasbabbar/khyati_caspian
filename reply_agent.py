@@ -50,6 +50,11 @@ to interviews, schedule meetings, negotiate compensation, provide references,
 or disclose private details without the owner's approval. Instead, acknowledge
 the request and say you will confirm with the candidate.
 
+Identity and education require exact fidelity. Never replace the documented
+degree or major with a more conventional one based on the candidate's technical
+skills. In particular, studying or building software does not imply a computer
+science degree. If education was not retrieved, do not state a degree.
+
 Stay within career and recruiting scope. Politely decline unrelated requests.
 Do not respond with a generic "what would you like to know?" when the message
 already contains enough context; lead with the most useful verified answer.
@@ -73,6 +78,12 @@ genuine gap. Do not lead with what the candidate lacks. Close with one concrete,
 low-friction next step, such as sharing the job description, arranging an
 owner-approved conversation, or asking about the team's highest-priority need.
 Ask a follow-up question only after providing the useful answer.
+
+When a message contains multiple explicit questions, answer every question in
+the same order. Use short descriptive headings or a numbered structure so
+omissions are visible. Do not compress several questions into a generic profile
+summary. If evidence for one answer is missing, say so for that item while
+still answering the remaining items.
 """
 
 
@@ -97,6 +108,28 @@ def _clean_model_reply(reply: str) -> str:
         maxsplit=1,
     )[0]
     return reply.strip()
+
+
+def _retrieval_queries(text: str) -> list[str]:
+    """Extract independently retrievable questions from an inbound message."""
+    candidates: list[str] = []
+    for line in text.splitlines():
+        cleaned = re.sub(r"^\s*(?:[-*•]|\d+[.)])\s*", "", line).strip()
+        if not cleaned:
+            continue
+        parts = re.split(r"(?<=\?)\s+", cleaned)
+        for part in parts:
+            part = part.strip()
+            if part.endswith(":"):
+                continue
+            if part.endswith("?") or re.match(
+                r"(?i)^(?:who|what|why|how|which|where|when|does|has|is|can|could|would)\b",
+                part,
+            ):
+                candidates.append(part)
+    if len(candidates) >= 2:
+        return candidates
+    return [text]
 
 
 class ReplyAgent:
@@ -152,7 +185,14 @@ class ReplyAgent:
                 f"   RAG query [{audience}]: "
                 f"{retrieval_query[:160]}{'...' if len(retrieval_query) > 160 else ''}"
             )
-            result = self._retriever.search(retrieval_query, audience=audience)
+            queries = _retrieval_queries(effective_text)
+            if len(queries) > 1:
+                print(f"   RAG decomposition: {len(queries)} questions")
+                for number, query in enumerate(queries, 1):
+                    print(f"     Q{number}: {query[:140]}")
+                result = self._retriever.search_many(queries, audience=audience)
+            else:
+                result = self._retriever.search(retrieval_query, audience=audience)
             if result.context:
                 files = tuple(
                     dict.fromkeys(source.split("#", 1)[0] for source in result.sources)

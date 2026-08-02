@@ -33,6 +33,8 @@ the hackathon's two-channel requirement.
 - Separates public demo knowledge from private personal information.
 - Classifies recruiter intent with an LLM and a deterministic five-rule fallback.
 - Escalates interview, availability, and compensation requests to the owner.
+- Persists interview requests and lets the owner approve, decline, or propose
+  another time from Telegram.
 - Keeps bounded, isolated context for each conversation.
 - Limits concurrent model calls and degrades safely when a provider fails.
 - Locks the Telegram owner channel to one configured username.
@@ -167,10 +169,42 @@ python channels.py
 ```
 
 Open your Telegram bot from the configured owner account, press **Start**, and
-send a message once. This establishes the private owner conversation for the
-current process. Recruiters can then email the Caspian address printed during
-startup. Khyati replies in the original email thread and sends the owner a
-Telegram summary when that owner conversation is available.
+send a message once. This verifies and stores the private owner conversation in
+ignored local state, so it remains available across restarts. Recruiters can
+then email the Caspian address printed during startup. Khyati replies in the
+original email thread and sends the owner a Telegram summary. Startup clearly
+reports whether the owner conversation was restored or still needs registration.
+
+### Interview approval workflow
+
+When a recruiter proposes an interview time, Khyati stores the original email
+thread and sends Telegram instructions such as:
+
+```text
+INTERVIEW APPROVAL INT-A1B2C3
+
+approve INT-A1B2C3 tomorrow at 3:00 PM IST
+decline INT-A1B2C3
+counter INT-A1B2C3 Wednesday between 4:00 PM and 6:00 PM IST
+```
+
+Approval requires an exact time and timezone. A successful command sends a
+deterministic response into the original recruiter email thread and resolves
+the request. Send `pending` on Telegram to list open requests. Approval state
+is stored under ignored `.khyati/` data and survives restarts.
+
+The authenticated owner can also initiate a new email with an explicit,
+confirm-before-send flow:
+
+```text
+ask person@example.com if she is available for a call tomorrow at 4 PM?
+```
+
+Khyati returns an `OUT-XXXXXX` draft containing the exact recipient and body.
+Nothing is sent until the owner replies `send OUT-XXXXXX`; use
+`cancel OUT-XXXXXX` to discard it. Khyati reuses an existing conversation when
+the address has emailed before. A genuinely new address requires Caspian's
+`INITIATE` capability on the active Email connection.
 
 ## Safety model
 
@@ -220,16 +254,16 @@ tests/                    Offline regression tests
 
 ## Prototype limitations
 
-- Owner Telegram conversation discovery is process-local and must be
-  re-established after restart.
+- Owner Telegram registration is local to one deployment; moving Khyati to a
+  new machine requires messaging the bot once on that deployment.
 - Conversation memory is not persistent.
 - `app.py` previews decisions; only `channels.py` communicates through Caspian.
 - Attachments are not parsed into trusted knowledge.
 - Retrieval currently uses inspectable lexical/concept ranking rather than
   embedding similarity. The retriever boundary is ready for pgvector or Qdrant
   when corpus size or semantic diversity warrants it.
-- The owner approval loop currently alerts rather than executing structured
-  approve/deny actions.
+- Approval updates the recruiter email thread but does not create a calendar
+  event; the recruiter is asked to send the invitation and meeting link.
 
 ## Hackathon
 
