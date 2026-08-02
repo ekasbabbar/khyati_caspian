@@ -11,5 +11,5 @@ last_updated: 2026-08-02
 
 - Open to: software engineering internships and entry-level roles
 - Earliest start date: May 2027
-- Interview scheduling: always ask the candidate for approval on Telegram
+- Interview scheduling: always ask the candidate for approval through Telegram
 - Compensation: private; never disclose or negotiate without approval

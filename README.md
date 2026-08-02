@@ -2,7 +2,7 @@
 
 Khyati is a personal AI career representative. Recruiters can email Khyati to
 learn about a candidate from a verified local knowledge base; sensitive
-requests are escalated to the candidate through a private Telegram channel.
+requests are escalated to the candidate through a private Telegram owner gateway.
 
 Khyati is explicit about being an AI representative. It does not invent career
 facts, negotiate compensation, accept interviews, or make commitments without
@@ -15,12 +15,13 @@ legitimate recruiter interest toward a concrete next step.
 ## Product flow
 
 ```text
-Recruiter Email -> Caspian -> grounded AI reply
-                         \-> private Telegram update -> candidate
+Recruiter Email/Telegram -> Caspian -> grounded AI reply
+                                  \-> private Telegram update -> candidate
 ```
 
-Email and Telegram are connected through one Caspian message handler, satisfying
-the hackathon's two-channel requirement.
+Email and Telegram are connected through one Caspian message handler. Both are
+recruiter-facing by default; the configured Telegram username enters the
+authenticated owner control path.
 
 ## What it does
 
@@ -34,12 +35,12 @@ the hackathon's two-channel requirement.
 - Classifies recruiter intent with an LLM and a deterministic five-rule fallback.
 - Escalates interview, availability, and compensation requests to the owner.
 - Persists interview requests and lets the owner approve, decline, or propose
-  another time from Telegram.
+  another time through Telegram.
 - Keeps bounded, isolated context for each conversation.
 - Limits concurrent model calls and degrades safely when a provider fails.
 - Uses Featherless/Qwen as primary and Gemini as an automatic secondary.
 - Rejects leaked model reasoning and malformed structured output.
-- Locks the Telegram owner channel to one configured username.
+- Locks owner access to one configured Telegram username.
 
 ## Architecture
 
@@ -52,7 +53,7 @@ knowledge/ -> heading chunks -> persistent hybrid index
 Recruiter Email -> Caspian single handler -> Email reply
                                   |
                                   v
-                         Owner Telegram alert
+                        Owner Telegram alert
 
 Featherless/Qwen -> Gemini -> safe response fallback
 
@@ -189,7 +190,8 @@ python -m pip install caspian-cli
 caspian init
 ```
 
-Create a Telegram bot with `@BotFather`, then configure `.env`:
+Configure the Caspian channels in `.env`. Telegram serves recruiters and the
+authenticated owner:
 
 ```dotenv
 CASPIAN_API_KEY=your_caspian_key
@@ -197,25 +199,23 @@ CASPIAN_BASE_URL=https://api.trycaspianai.com
 CASPIAN_EMAIL_USERNAME=khyati-yourname
 TELEGRAM_BOT_TOKEN=your_bot_token
 KHYATI_OWNER_TELEGRAM_USERNAME=@your_username
-
 KHYATI_OWNER_CHANNEL_STATE=.khyati/owner_channel.json
 KHYATI_APPROVAL_STATE=.khyati/pending_approvals.json
 KHYATI_OUTBOUND_STATE=.khyati/outbound_drafts.json
 KHYATI_EMAIL_THREAD_STATE=.khyati/email_threads.json
 ```
 
-Start the live two-channel agent:
+Start the live multi-channel agent:
 
 ```bash
 python channels.py
 ```
 
-Open your Telegram bot from the configured owner account, press **Start**, and
-send a message once. This verifies and stores the private owner conversation in
-ignored local state, so it remains available across restarts. Recruiters can
-then email the Caspian address printed during startup. Khyati replies in the
-original email thread and sends the owner a Telegram summary. Startup clearly
-reports whether the owner conversation was restored or still needs registration.
+Recruiters can use Email or Telegram; Khyati replies in the originating
+conversation and sends private summaries to the registered owner conversation.
+Message the bot once from `KHYATI_OWNER_TELEGRAM_USERNAME` to register Telegram.
+Startup reports whether
+the owner conversation was restored or needs registration.
 
 ### Interview approval workflow
 
@@ -232,10 +232,10 @@ counter INT-A1B2C3 Wednesday between 4:00 PM and 6:00 PM IST
 
 Approval requires an exact time and timezone. A successful command sends a
 deterministic response into the original recruiter email thread and resolves
-the request. Send `pending` on Telegram to list open requests. Approval state
+the request. Send `pending` through Telegram to list open requests. Approval state
 is stored under ignored `.khyati/` data and survives restarts.
 
-The authenticated owner can also initiate a new email with an explicit,
+The authenticated owner can also initiate a new email from Telegram with an explicit,
 confirm-before-send flow:
 
 ```text
@@ -260,7 +260,8 @@ the address has emailed before. A genuinely new address requires Caspian's
   relevance thresholds are discarded.
 - Interview scheduling, compensation, references, and private contact details
   require owner involvement.
-- Telegram sender authorization is enforced in code, not only in a prompt.
+- Owner authorization uses a case-insensitive Telegram username comparison,
+  not only a prompt.
 - Conversation histories are isolated and bounded to recent messages.
 - One failed channel does not prevent the other from starting.
 
@@ -300,7 +301,7 @@ tests/                    Offline regression tests
 ## Prototype limitations
 
 - Owner Telegram registration is local to one deployment; moving Khyati to a
-  new machine requires messaging the bot once on that deployment.
+  new machine requires messaging the gateway once on that deployment.
 - Conversation memory is not persistent.
 - Provider circuit-breaker state is process-local and resets after restart.
 - `app.py` previews decisions; only `channels.py` communicates through Caspian.
@@ -310,7 +311,6 @@ tests/                    Offline regression tests
   when corpus size or semantic diversity warrants it.
 - Approval updates the recruiter email thread but does not create a calendar
   event; the recruiter is asked to send the invitation and meeting link.
-
 ## Hackathon
 
 Built for Caspian's 15-day AI Agent Hackathon. Khyati uses `caspian-sdk`, runs on

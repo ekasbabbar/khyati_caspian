@@ -11,7 +11,7 @@ last_updated: 2026-08-02
 
 Khyati is a grounded personal career representative built for the Caspian AI
 Agent Hackathon. Recruiters email Khyati to ask about the candidate's verified
-experience and projects. Telegram is used for private candidate coordination.
+experience and projects. Authenticated Telegram is used for private candidate coordination.
 
 Technical details:
 

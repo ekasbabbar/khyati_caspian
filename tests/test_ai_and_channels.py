@@ -105,16 +105,16 @@ class ReplyAgentTests(unittest.TestCase):
         messages=completions.last_kwargs["messages"]
         self.assertIn("[SOURCE: skills.md]",messages[0]["content"])
         self.assertIn("external recruiter",messages[-1]["content"])
-    def test_telegram_is_identified_as_owner_channel(self):
+    def test_internal_owner_role_is_identified(self):
         completions=FakeCompletions(reply="Owner assessment")
         agent=ReplyAgent(api_key="test",model="test",client=FakeOpenAI(completions))
-        agent.respond("product management intern","telegram")
+        agent.respond("product management intern","owner")
         self.assertIn("candidate owner",completions.last_kwargs["messages"][-1]["content"])
     def test_retrieval_uses_channel_audience(self):
         completions=FakeCompletions(reply="Assessment"); retriever=StubRetriever()
         agent=ReplyAgent(api_key="test",model="test",client=FakeOpenAI(completions),retriever=retriever)
-        with redirect_stdout(StringIO()): agent.respond("role","email"); agent.respond("role","telegram")
-        self.assertEqual(retriever.audiences,["recruiter","owner"])
+        with redirect_stdout(StringIO()): agent.respond("role","email"); agent.respond("role","telegram"); agent.respond("role","owner")
+        self.assertEqual(retriever.audiences,["recruiter","recruiter","owner"])
     def test_email_signature_is_removed_before_retrieval(self):
         cleaned=_clean_email_message("Tell me about AI agents.\n\nBest regards,\nRecruiter\nIIT Guwahati")
         self.assertEqual(cleaned,"Tell me about AI agents.")
@@ -137,11 +137,11 @@ class ReplyAgentTests(unittest.TestCase):
         self.assertEqual(replies,["Happy to help."]*6); self.assertEqual(completions.high_water_mark,2)
 
 class SharedHandlerTests(unittest.TestCase):
-    def test_one_handler_serves_both_channels(self):
-        agent=StubReplyAgent(); handler=build_handler(agent)
-        email,telegram=FakeMessage("email"),FakeMessage("telegram")
-        with redirect_stdout(StringIO()): handler(email); handler(telegram)
-        self.assertEqual(agent.channels,["email","telegram"])
+    def test_one_handler_serves_all_channels(self):
+        agent=StubReplyAgent(); handler=build_handler(agent,owner_telegram_username="@Ekasbabb")
+        email,telegram,owner=FakeMessage("email"),FakeMessage("telegram"),FakeMessage("telegram",sender="Ekasbabb",conversation_id="owner")
+        with redirect_stdout(StringIO()): handler(email); handler(telegram); handler(owner)
+        self.assertEqual(agent.channels,["email","telegram","owner"])
     def test_failure_sends_safe_fallback(self):
         message=FakeMessage("email")
         with redirect_stdout(StringIO()): build_handler(FailingReplyAgent())(message)
@@ -150,14 +150,27 @@ class SharedHandlerTests(unittest.TestCase):
         agent=StubReplyAgent(); handler=build_handler(agent)
         with redirect_stdout(StringIO()): handler(FakeMessage("email",text="First")); handler(FakeMessage("email",text="Second"))
         self.assertEqual(agent.histories[1][0]["content"],"First")
-    def test_telegram_rejects_non_owner(self):
-        message=FakeMessage("telegram",sender="intruder")
-        with redirect_stdout(StringIO()): build_handler(StubReplyAgent(),owner_telegram_username="@owner")(message)
-        self.assertEqual(message.replies,["This is a private career-agent channel."])
     def test_email_notifies_known_owner_conversation(self):
-        client=FakeCaspianClient(); handler=build_handler(StubReplyAgent(),client=client,owner_telegram_username="@owner")
-        with redirect_stdout(StringIO()): handler(FakeMessage("telegram",sender="@owner",conversation_id="owner-chat")); handler(FakeMessage("email"))
+        client=FakeCaspianClient(); handler=build_handler(StubReplyAgent(),client=client,owner_telegram_username="@Ekasbabb")
+        with redirect_stdout(StringIO()): handler(FakeMessage("telegram",sender="Ekasbabb",conversation_id="owner-chat")); handler(FakeMessage("email"))
         self.assertEqual(client.sent[0][0],"owner-chat")
+    def test_configured_telegram_owner_can_run_owner_commands(self):
+        client=FakeCaspianClient(); drafts=OutboundDraftStore()
+        handler=build_handler(StubReplyAgent(),client=client,owner_telegram_username="@Ekasbabb",outbound_store=drafts,email_connection_id="email-1")
+        message=FakeMessage("telegram",text="ask person@example.com about an interview",sender="Ekasbabb",conversation_id="telegram-owner")
+        with redirect_stdout(StringIO()): handler(message)
+        self.assertIn("Outbound draft",message.replies[0])
+    def test_other_telegram_users_remain_recruiter_facing(self):
+        agent=StubReplyAgent()
+        handler=build_handler(agent,owner_telegram_username="@Ekasbabb")
+        with redirect_stdout(StringIO()): handler(FakeMessage("telegram",sender="recruiter42"))
+        self.assertEqual(agent.channels,["telegram"])
+    def test_owner_alerts_reach_registered_telegram(self):
+        client=FakeCaspianClient(); registry=OwnerChannelRegistry()
+        registry.set("telegram-owner","telegram")
+        handler=build_handler(StubReplyAgent(),client=client,owner_registry=registry)
+        with redirect_stdout(StringIO()): handler(FakeMessage("email"))
+        self.assertEqual({item[0] for item in client.sent},{"telegram-owner"})
     def test_owner_conversation_survives_registry_restart(self):
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/"owner.json"
@@ -181,8 +194,8 @@ class SharedHandlerTests(unittest.TestCase):
     def test_owner_approval_updates_original_email_thread(self):
         client=FakeCaspianClient(); registry=OwnerChannelRegistry(); registry.set("owner-chat")
         store=ApprovalStore(); request=store.create("email-thread","john@example.com","John","Interview tomorrow")
-        handler=build_handler(StubReplyAgent(),client=client,owner_telegram_username="@owner",owner_registry=registry,approval_store=store)
-        command=FakeMessage("telegram",text=f"approve {request.id} tomorrow at 3:00 PM IST",sender="@owner",conversation_id="owner-chat")
+        handler=build_handler(StubReplyAgent(),client=client,owner_telegram_username="@Ekasbabb",owner_registry=registry,approval_store=store)
+        command=FakeMessage("telegram",text=f"approve {request.id} tomorrow at 3:00 PM IST",sender="Ekasbabb",conversation_id="owner-chat")
         with redirect_stdout(StringIO()): handler(command)
         self.assertEqual(client.sent[0][0],"email-thread")
         self.assertIn("confirmed",client.sent[0][1])
@@ -190,8 +203,8 @@ class SharedHandlerTests(unittest.TestCase):
         self.assertIn("recruiter thread was updated",command.replies[0])
     def test_approval_without_exact_time_requests_one(self):
         client=FakeCaspianClient(); store=ApprovalStore(); request=store.create("email-thread","john@example.com","John","Between 2 and 5")
-        handler=build_handler(StubReplyAgent(),client=client,owner_telegram_username="@owner",approval_store=store)
-        command=FakeMessage("telegram",text=f"approve {request.id}",sender="@owner")
+        handler=build_handler(StubReplyAgent(),client=client,owner_telegram_username="@Ekasbabb",approval_store=store)
+        command=FakeMessage("telegram",text=f"approve {request.id}",sender="Ekasbabb")
         with redirect_stdout(StringIO()): handler(command)
         self.assertIn("exact time",command.replies[0])
         self.assertEqual(client.sent,[])
@@ -201,28 +214,28 @@ class SharedHandlerTests(unittest.TestCase):
         self.assertFalse(is_scheduling_request("I may schedule an interview after learning more."))
     def test_owner_can_confirm_cold_start_email_draft(self):
         client=FakeCaspianClient(); drafts=OutboundDraftStore()
-        handler=build_handler(StubReplyAgent(),client=client,owner_telegram_username="@owner",outbound_store=drafts,email_connection_id="email-1")
-        draft_message=FakeMessage("telegram",text="ask person@example.com if she is available for a call in 15 minutes?",sender="@owner")
+        handler=build_handler(StubReplyAgent(),client=client,owner_telegram_username="@Ekasbabb",outbound_store=drafts,email_connection_id="email-1")
+        draft_message=FakeMessage("telegram",text="ask person@example.com if she is available for a call in 15 minutes?",sender="Ekasbabb")
         with redirect_stdout(StringIO()): handler(draft_message)
         self.assertIn("Reply `send OUT-",draft_message.replies[0])
         draft_id=re.search(r"OUT-[A-F0-9]{6}",draft_message.replies[0]).group(0)
-        send_message=FakeMessage("telegram",text=f"send {draft_id}",sender="@owner")
+        send_message=FakeMessage("telegram",text=f"send {draft_id}",sender="Ekasbabb")
         with redirect_stdout(StringIO()): handler(send_message)
         self.assertEqual(client.sent[0][0],"email-1")
         self.assertEqual(client.sent[0][1],"person@example.com")
         self.assertIn("Would you be available",client.sent[0][2])
     def test_owner_can_cancel_outbound_draft(self):
         client=FakeCaspianClient(); drafts=OutboundDraftStore(); draft=drafts.create("person@example.com","Hello")
-        handler=build_handler(StubReplyAgent(),client=client,owner_telegram_username="@owner",outbound_store=drafts,email_connection_id="email-1")
-        message=FakeMessage("telegram",text=f"cancel {draft.id}",sender="@owner")
+        handler=build_handler(StubReplyAgent(),client=client,owner_telegram_username="@Ekasbabb",outbound_store=drafts,email_connection_id="email-1")
+        message=FakeMessage("telegram",text=f"cancel {draft.id}",sender="Ekasbabb")
         with redirect_stdout(StringIO()): handler(message)
         self.assertEqual(client.sent,[]); self.assertIn("nothing was sent",message.replies[0])
     def test_owner_outbound_reuses_known_email_thread(self):
         client=FakeCaspianClient(); drafts=OutboundDraftStore(); threads=EmailThreadRegistry()
         threads.set("person@example.com","existing-thread")
         draft=drafts.create("person@example.com","Can you meet tomorrow?")
-        handler=build_handler(StubReplyAgent(),client=client,owner_telegram_username="@owner",outbound_store=drafts,email_connection_id="email-1",email_threads=threads)
-        message=FakeMessage("telegram",text=f"send {draft.id}",sender="@owner")
+        handler=build_handler(StubReplyAgent(),client=client,owner_telegram_username="@Ekasbabb",outbound_store=drafts,email_connection_id="email-1",email_threads=threads)
+        message=FakeMessage("telegram",text=f"send {draft.id}",sender="Ekasbabb")
         with redirect_stdout(StringIO()): handler(message)
         self.assertEqual(client.sent[0][0],"existing-thread")
         self.assertEqual(len(client.sent[0]),2)

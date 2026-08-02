@@ -246,35 +246,49 @@ def handle_owner_outbound(
 
 
 class OwnerChannelRegistry:
-    """Persist the verified owner's Caspian conversation across restarts."""
+    """Persist the verified owner's Telegram conversation across restarts."""
 
     def __init__(self, path: Path | None = None) -> None:
         self._path = path
         self._lock = Lock()
-        self._conversation_id = self._load()
+        self._conversations = self._load()
 
-    def _load(self) -> str | None:
+    def _load(self) -> dict[str, str]:
         if self._path is None or not self._path.is_file():
-            return None
+            return {}
         try:
             payload = json.loads(self._path.read_text(encoding="utf-8"))
-            value = payload.get("telegram_conversation_id")
-            return value if isinstance(value, str) and value else None
+            conversations = payload.get("conversations", {})
+            if isinstance(conversations, dict):
+                return {
+                    channel: value
+                    for channel, value in conversations.items()
+                    if channel == "telegram"
+                    and isinstance(value, str)
+                    and value
+                }
+            return {}
         except (OSError, json.JSONDecodeError):
-            return None
+            return {}
 
-    def get(self) -> str | None:
+    def get(self, channel: str = "telegram") -> str | None:
         with self._lock:
-            return self._conversation_id
+            return self._conversations.get(channel)
 
-    def set(self, conversation_id: str) -> None:
+    def all(self) -> tuple[str, ...]:
         with self._lock:
-            self._conversation_id = conversation_id
+            return tuple(dict.fromkeys(self._conversations.values()))
+
+    def set(self, conversation_id: str, channel: str = "telegram") -> None:
+        if channel != "telegram":
+            raise ValueError(f"Unsupported owner channel: {channel}")
+        with self._lock:
+            self._conversations[channel] = conversation_id
             if self._path is not None:
                 self._path.parent.mkdir(parents=True, exist_ok=True)
                 temporary = self._path.with_suffix(".tmp")
                 temporary.write_text(
-                    json.dumps({"telegram_conversation_id": conversation_id}),
+                    json.dumps({"conversations": self._conversations}),
                     encoding="utf-8",
                 )
                 temporary.replace(self._path)
@@ -294,7 +308,7 @@ def explain_connection_error(channel: str, error: Exception) -> str:
 
 
 def connect_available_channels(client, settings) -> dict[str, dict]:
-    """Connect each channel independently so one failure does not stop the other."""
+    """Connect gateways independently so one failure does not stop the others."""
     connected: dict[str, dict] = {}
 
     try:
@@ -305,7 +319,7 @@ def connect_available_channels(client, settings) -> dict[str, dict]:
         print(f"WARNING: {explain_connection_error('Email', error)}")
 
     if not settings.caspian_telegram_bot_token:
-        print("WARNING: Telegram: set TELEGRAM_BOT_TOKEN in .env.")
+        print("Telegram disabled: set TELEGRAM_BOT_TOKEN to enable it.")
     else:
         try:
             connected["telegram"] = client.connect_telegram(
@@ -339,7 +353,7 @@ def build_handler(
     approval_store = approval_store or ApprovalStore()
     outbound_store = outbound_store or OutboundDraftStore()
     email_threads = email_threads or EmailThreadRegistry()
-    expected_owner = (owner_telegram_username or "").strip().lower().lstrip("@")
+    expected_telegram_owner = (owner_telegram_username or "").lstrip("@").lower()
 
     def handle(message) -> None:
         text = (message.text or "").strip()
@@ -350,13 +364,16 @@ def build_handler(
         if message.channel == "email" and sender != "unknown":
             email_threads.set(sender, conversation_id)
 
+        is_owner = False
         if message.channel == "telegram":
-            actual_sender = sender.strip().lower().lstrip("@")
-            if expected_owner and actual_sender != expected_owner:
-                message.reply("This is a private career-agent channel.")
-                return
-            owner_registry.set(conversation_id)
-            print("   Owner Telegram conversation verified and saved.")
+            actual_username = sender.lstrip("@").lower()
+            is_owner = bool(
+                expected_telegram_owner and actual_username == expected_telegram_owner
+            )
+
+        if is_owner:
+            owner_registry.set(conversation_id, message.channel)
+            print(f"   Owner {message.channel} conversation verified and saved.")
 
             if client and handle_owner_outbound(
                 text,
@@ -383,24 +400,26 @@ def build_handler(
                 recruiter_name=recruiter_name,
                 request_text=text[:3000],
             )
-            owner_conversation_id = owner_registry.get()
-            if owner_conversation_id:
-                try:
-                    client.send_message(owner_conversation_id, text=approval_alert(request))
-                    approval_created = True
+            owner_conversation_ids = owner_registry.all()
+            if owner_conversation_ids:
+                for owner_conversation_id in owner_conversation_ids:
+                    try:
+                        client.send_message(owner_conversation_id, text=approval_alert(request))
+                        approval_created = True
+                    except Exception as error:
+                        print(f"WARNING: interview approval notification failed ({error}).")
+                if approval_created:
                     print(f"   Created and sent interview approval {request.id}.")
-                except Exception as error:
-                    print(f"WARNING: interview approval notification failed ({error}).")
             else:
                 print(
-                    f"WARNING: interview approval {request.id} stored but Telegram "
-                    "owner is not registered."
+                    f"WARNING: interview approval {request.id} stored but "
+                    "no owner gateway is registered."
                 )
 
         try:
             reply = reply_agent.respond(
                 text=text,
-                channel=message.channel,
+                channel="owner" if is_owner else message.channel,
                 history=memory.history(conversation_id),
             )
         except Exception as error:
@@ -420,29 +439,30 @@ def build_handler(
         memory.add(conversation_id, "assistant", reply)
         print(f"-> [{message.channel}] {reply}")
 
-        owner_conversation_id = owner_registry.get()
+        owner_conversation_ids = owner_registry.all()
         if (
             message.channel == "email"
             and client
-            and owner_conversation_id
+            and owner_conversation_ids
             and not approval_created
         ):
-            try:
-                client.send_message(
-                    owner_conversation_id,
-                    text=(
-                        f"Recruiter message from {sender}:\n\n{text}\n\n"
-                        "Khyati replied:\n\n"
-                        f"{reply}"
-                    ),
-                )
-            except Exception as error:
-                print(f"WARNING: owner notification failed ({error}).")
+            for owner_conversation_id in owner_conversation_ids:
+                try:
+                    client.send_message(
+                        owner_conversation_id,
+                        text=(
+                            f"Recruiter message from {sender}:\n\n{text}\n\n"
+                            "Khyati replied:\n\n"
+                            f"{reply}"
+                        ),
+                    )
+                except Exception as error:
+                    print(f"WARNING: owner notification failed ({error}).")
         elif message.channel == "email" and client and not approval_created:
             print(
-                "WARNING: owner notification skipped: no verified Telegram "
-                "conversation is registered. Message the bot once from the "
-                "configured owner account."
+                "WARNING: owner notification skipped: no verified owner "
+                    "conversation is registered. Message the Telegram bot from "
+                    "the configured owner identity."
             )
 
     return handle
@@ -456,7 +476,7 @@ def main() -> None:
         raise RuntimeError("Set FEATHERLESS_API_KEY or GEMINI_API_KEY in .env")
     if not settings.owner_telegram_username:
         raise RuntimeError(
-            "Set KHYATI_OWNER_TELEGRAM_USERNAME in .env to secure Telegram."
+            "Set KHYATI_OWNER_TELEGRAM_USERNAME in .env to secure owner commands."
         )
 
     from caspian_sdk import CommClient
@@ -498,12 +518,12 @@ def main() -> None:
     approval_store = ApprovalStore(settings.approval_state_path)
     outbound_store = OutboundDraftStore(settings.outbound_state_path)
     email_threads = EmailThreadRegistry(settings.email_thread_state_path)
-    if owner_registry.get():
-        print("Owner Telegram conversation restored from local state.")
+    if owner_registry.all():
+        print("Owner conversation(s) restored from local state.")
     else:
         print(
-            "Owner Telegram conversation not registered yet. Message the bot "
-            "once from the configured owner account to enable alerts."
+            "No owner conversation registered yet. Message the Telegram bot from "
+            "the configured owner identity to enable alerts."
         )
     pending_count = len(approval_store.pending())
     if pending_count:
