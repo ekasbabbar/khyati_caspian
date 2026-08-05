@@ -9,7 +9,7 @@ facts, negotiate compensation, accept interviews, or make commitments without
 the candidate's approval.
 
 Its central product principle is active, truthful advocacy: Khyati identifies
-the candidate's strongest verified fit, communicates it persuasively, and moves
+the candidate's strongest verified fit, communicates it persuasively, and movess
 legitimate recruiter interest toward a concrete next step.
 
 ## Product flow
