@@ -1,6 +1,6 @@
 # Khyati
 
-Khyati is a personal AI career representative. Recruiters can email Khyati to
+Khyati is a personal AI career representative. Recruiters can email/text Khyati to
 learn about a candidate from a verified local knowledge base; sensitive
 requests are escalated to the candidate through a private Telegram owner gateway.
 
