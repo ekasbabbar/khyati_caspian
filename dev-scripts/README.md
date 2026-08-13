@@ -18,4 +18,3 @@ Run either file from the repository root:
 
 The code deployment requires the desired changes to have already been committed
 and pushed to the public repository.
-

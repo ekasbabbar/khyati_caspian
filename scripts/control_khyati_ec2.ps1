@@ -43,4 +43,3 @@ $remoteScript = switch ($Action) {
 if ($LASTEXITCODE -ne 0) {
     throw "Could not change Khyati's EC2 service state."
 }
-

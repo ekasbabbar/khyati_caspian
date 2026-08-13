@@ -1,18 +1,26 @@
 # Khyati
 
-Khyati enters prod soon.
+## Summary
 
-Khyati is a personal AI career representative. Recruiters can email/text Khyati to
-learn about a candidate from a verified local knowledge base; sensitive
-requests are escalated to the candidate through a private Telegram owner gateway.
+Khyati is a personal AI career representative that turns a passive portfolio
+into an active, two-way recruiter experience. Recruiters can contact Khyati by
+Email or Telegram and receive relevant, evidence-backed answers drawn from the
+candidate's verified private knowledge base. Both channels run through one
+`caspian-sdk` handler.
 
-Khyati is explicit about being an AI representative. It does not invent career
-facts, negotiate compensation, accept interviews, or make commitments without
-the candidate's approval.
+Khyati does more than retrieve documents: it presents the candidate's strongest
+truthful fit, remembers conversation context, and moves genuine interest toward
+a useful next step. Sensitive actions remain human-controlled. Interview,
+availability, and compensation requests are escalated to the candidate through
+an authenticated Telegram owner channel before Khyati makes any commitment.
 
-Its central product principle is active, truthful advocacy: Khyati identifies
-the candidate's strongest verified fit, communicates it persuasively, and movess
-legitimate recruiter interest toward a concrete next step.
+The prototype combines privacy-aware retrieval, multi-provider LLM failover,
+persistent conversation and approval state, deterministic safety fallbacks, and
+an EC2-ready always-on listener. Khyati always identifies itself as an AI and
+never invents career facts.
+
+**In one line:** Khyati helps recruiters understand and reach a candidate while
+keeping the candidate's facts, privacy, and decisions under human control.
 
 ## Product flow
 

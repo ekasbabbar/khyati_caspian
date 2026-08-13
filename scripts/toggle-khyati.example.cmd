@@ -12,4 +12,3 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\control_kh
 if errorlevel 1 echo Failed to change Khyati's state.
 echo.
 pause
-
