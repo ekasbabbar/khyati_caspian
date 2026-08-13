@@ -281,6 +281,9 @@ class PostgresOutboundDrafts:
 class PostgresEvents:
     """Cursor, deduplication, and audit primitives for the production worker."""
 
+    def __init__(self, state: PostgresState) -> None:
+        self.state = state
+
     def claim(self, event_id: str, sequence: int | None = None) -> bool:
         with self.state.connection() as connection:
             row = connection.execute(

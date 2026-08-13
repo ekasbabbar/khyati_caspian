@@ -37,3 +37,7 @@ dist/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Machine-specific deployment launchers
+*.local.cmd
+*.local.ps1

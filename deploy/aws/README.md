@@ -141,3 +141,35 @@ SSM. If startup fails, the workflow restores the prior versioned manifest.
 For recovery, configure an EC2 status-check alarm and optionally an EBS snapshot
 policy. The PostgreSQL database and private knowledge store should remain outside
 the instance so replacing the VM does not lose production state.
+
+## Manual knowledge save button from Windows
+
+For a direct local-to-EC2 workflow, copy
+`scripts/save-knowledge.example.cmd` to the repository root as
+`save-knowledge.local.cmd`, fill in the PEM path and EC2 hostname, and
+double-click it after editing the local `knowledge/` directory. Files ending in
+`.local.cmd` are ignored so machine-specific infrastructure details are not
+published.
+
+The button validates metadata before upload, copies into a staging directory,
+validates again on EC2, mirrors additions/changes/deletions into
+`/opt/khyati/app/knowledge`, restarts the systemd service, checks that it remains
+active, and restores the previous knowledge folder if the restart fails.
+
+The EC2 image needs `rsync` for this workflow:
+
+```bash
+sudo apt install -y rsync
+```
+
+## Local on/off switch
+
+Copy `scripts/toggle-khyati.example.cmd` to the repository root as
+`toggle-khyati.local.cmd`, configure the PEM path and hostname, then
+double-click it to toggle the listener. Turning Khyati off runs
+`systemctl disable --now khyati`; turning it on runs
+`systemctl enable --now khyati`. This stops API polling and message handling but
+does not stop the EC2 instance itself.
+
+The PowerShell controller can also be used directly with `-Action on`, `off`,
+`status`, or `toggle`.

@@ -350,6 +350,17 @@ provide `visibility`, `approval_required`, `document_type`, `topics`,
 selects an immutable local cache, so a failed update cannot partially replace a
 working knowledge snapshot.
 
+For manual private-knowledge updates from Windows, use the reusable
+[`scripts/sync_knowledge_ec2.ps1`](scripts/sync_knowledge_ec2.ps1) uploader or
+copy the public [`scripts/save-knowledge.example.cmd`](scripts/save-knowledge.example.cmd)
+launcher. The machine-specific `save-knowledge.local.cmd` launcher is ignored.
+
+To turn the EC2 listener on or off without terminating the instance, copy
+[`scripts/toggle-khyati.example.cmd`](scripts/toggle-khyati.example.cmd) to the
+repository root as `toggle-khyati.local.cmd` and configure the same PEM path and
+hostname. The switch disables the service when turning it off, so it stays off
+after an EC2 reboot. It re-enables automatic startup when turned back on.
+
 ### Always-on AWS EC2 listener
 
 The production listener is designed to run as a hardened `systemd` service on
