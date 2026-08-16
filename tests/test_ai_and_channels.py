@@ -26,6 +26,7 @@ from reply_agent import (
     ReplyAgent,
     _clean_email_message,
     _clean_model_reply,
+    _retrieval_query,
     _retrieval_queries,
 )
 from knowledge_retriever import RetrievalResult
@@ -131,6 +132,19 @@ class ReplyAgentTests(unittest.TestCase):
             "Could you tell me:\nWho is Ekas?\nWhat has he built?\nWhy is he a fit?"
         )
         self.assertEqual(len(questions),3)
+    def test_fresh_message_does_not_inherit_stale_retrieval_context(self):
+        history=[{"role":"user","content":"How many approvals are pending?"}]
+        self.assertEqual(_retrieval_query("Hi Khyati",history),"Hi Khyati")
+    def test_referential_followup_uses_only_latest_user_turn(self):
+        history=[
+            {"role":"user","content":"Old unrelated topic"},
+            {"role":"assistant","content":"Answer"},
+            {"role":"user","content":"Tell me about Khyati"},
+        ]
+        self.assertEqual(
+            _retrieval_query("What are its applications?",history),
+            "Tell me about Khyati What are its applications?",
+        )
     def test_concurrency_is_bounded(self):
         completions=TrackingCompletions(); agent=ReplyAgent(api_key="test",model="test",client=FakeOpenAI(completions),max_concurrent=2)
         with ThreadPoolExecutor(max_workers=6) as pool: replies=list(pool.map(lambda _:agent.respond("Help","telegram"),range(6)))
@@ -207,6 +221,39 @@ class SharedHandlerTests(unittest.TestCase):
         command=FakeMessage("telegram",text=f"approve {request.id}",sender="Ekasbabb")
         with redirect_stdout(StringIO()): handler(command)
         self.assertIn("exact time",command.replies[0])
+        self.assertEqual(client.sent,[])
+
+    def test_owner_can_approve_single_email_interview_without_repeating_id_or_time(self):
+        client=FakeCaspianClient(); store=ApprovalStore()
+        request=store.create(
+            "email-thread","john@example.com","John",
+            "Can we schedule the interview tomorrow at 3:00 PM IST?",
+        )
+        handler=build_handler(
+            StubReplyAgent(),client=client,owner_telegram_username="@Ekasbabb",
+            approval_store=store,
+        )
+        command=FakeMessage(
+            "telegram",text="approve the email interview",sender="Ekasbabb",
+            conversation_id="owner-chat",
+        )
+        with redirect_stdout(StringIO()): handler(command)
+        self.assertEqual(store.get(request.id).status,"approved")
+        self.assertEqual(client.sent[0][0],"email-thread")
+        self.assertIn("3:00 PM IST",client.sent[0][1])
+
+    def test_ambiguous_natural_approval_lists_pending_ids(self):
+        client=FakeCaspianClient(); store=ApprovalStore()
+        first=store.create("thread-1","a@example.com","A","Tomorrow at 2 PM IST")
+        second=store.create("thread-2","b@example.com","B","Tomorrow at 4 PM IST")
+        handler=build_handler(
+            StubReplyAgent(),client=client,owner_telegram_username="@Ekasbabb",
+            approval_store=store,
+        )
+        command=FakeMessage("telegram",text="approve the email interview",sender="Ekasbabb")
+        with redirect_stdout(StringIO()): handler(command)
+        self.assertIn(first.id,command.replies[0])
+        self.assertIn(second.id,command.replies[0])
         self.assertEqual(client.sent,[])
 
     def test_scheduling_detection_requires_professional_time_request(self):

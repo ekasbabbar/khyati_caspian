@@ -19,6 +19,14 @@ class KnowledgeRetrieverTests(unittest.TestCase):
             "---\nvisibility: owner_only\napproval_required: true\n---\n"
             "# Private target\nMinimum compensation target is private.", encoding="utf-8"
         )
+        (self.root / "projects.md").write_text(
+            "---\nvisibility: recruiter\napproval_required: false\n"
+            "document_type: project\ntopics: AI agent, retrieval, Caspian\n"
+            "description: A grounded multi-channel career agent\n---\n"
+            "# Khyati\nBuilt a grounded AI agent with retrieval and Caspian channels.\n\n"
+            "# Architecture\nThe agent uses private knowledge and human approval.",
+            encoding="utf-8",
+        )
         self.index = Path(self.temp.name) / "index.sqlite3"
 
     def tearDown(self): self.temp.cleanup()
@@ -63,6 +71,26 @@ class KnowledgeRetrieverTests(unittest.TestCase):
         )
         self.assertIn("skills.md#Data Science", result.sources)
         self.assertIn("skills.md#Backend", result.sources)
+
+    def test_metadata_and_phrase_match_identify_named_project(self):
+        result = KnowledgeRetriever(self.root, self.index).search(
+            "Tell me about the AI agent work"
+        )
+        self.assertEqual(result.sources[0], "projects.md#Khyati")
+
+    def test_aliases_bridge_inflected_recruiter_language(self):
+        result = KnowledgeRetriever(self.root, self.index).search(
+            "What analytics experience does he have?"
+        )
+        self.assertIn("skills.md#Data Science", result.sources)
+
+    def test_results_include_complementary_sections(self):
+        result = KnowledgeRetriever(self.root, self.index).search(
+            "Explain Khyati architecture, retrieval, and approval",
+            limit=2,
+        )
+        self.assertIn("projects.md#Khyati", result.sources)
+        self.assertIn("projects.md#Architecture", result.sources)
 
 
 if __name__ == "__main__": unittest.main()

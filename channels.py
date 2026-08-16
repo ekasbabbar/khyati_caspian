@@ -51,6 +51,18 @@ def _select_request(text: str, store: ApprovalStore) -> PendingApproval | None:
     return pending[0] if len(pending) == 1 else None
 
 
+def _extract_interview_time(text: str) -> str | None:
+    """Extract a usable meeting time from an owner command or recruiter request."""
+    match = re.search(
+        r"\b(?:(?:today|tomorrow|monday|tuesday|wednesday|thursday|friday|"
+        r"saturday|sunday)\s+)?(?:at\s+)?(?:[01]?\d|2[0-3])(?::[0-5]\d)?\s*"
+        r"(?:am|pm)(?:\s+[A-Z]{2,5})?\b",
+        text,
+        re.IGNORECASE,
+    )
+    return match.group(0).strip() if match else None
+
+
 def handle_owner_approval(text: str, message, client, store: ApprovalStore) -> bool:
     """Handle deterministic owner commands and update the original email thread."""
     lowered = text.lower().strip()
@@ -70,7 +82,7 @@ def handle_owner_approval(text: str, message, client, store: ApprovalStore) -> b
         return True
 
     action_match = re.search(
-        r"\b(approve|approved|confirm|confirmed|schedule|decline|declined|deny|"
+        r"\b(approve|approved|accept|accepted|confirm|confirmed|schedule|decline|declined|deny|"
         r"counter|counter-propose|reschedule)\b",
         lowered,
     )
@@ -89,21 +101,20 @@ def handle_owner_approval(text: str, message, client, store: ApprovalStore) -> b
         return True
 
     action = action_match.group(1)
-    if action in {"approve", "approved", "confirm", "confirmed", "schedule"}:
-        time_match = re.search(
-            r"\b(?:today|tomorrow|monday|tuesday|wednesday|thursday|friday|"
-            r"saturday|sunday)?\s*(?:at\s+)?(?:[01]?\d|2[0-3])(?::[0-5]\d)?\s*"
-            r"(?:am|pm)(?:\s+[A-Z]{2,5})?\b",
-            text,
-            re.IGNORECASE,
+    if action in {"approve", "approved", "accept", "accepted", "confirm", "confirmed", "schedule"}:
+        # The owner should not need to repeat information that is already in
+        # the recruiter email. Prefer an explicitly supplied override, then
+        # fall back to the proposed time in the pending request.
+        chosen_time = _extract_interview_time(text) or _extract_interview_time(
+            item.request_text
         )
-        if not time_match:
+        if not chosen_time:
             message.reply(
-                f"Please give an exact time and timezone, for example: "
+                f"I found {item.id}, but the recruiter did not propose one exact "
+                "time. Tell me the time and timezone, for example: "
                 f"approve {item.id} tomorrow at 3:00 PM IST"
             )
             return True
-        chosen_time = time_match.group(0).strip()
         email_text = (
             f"Hi {item.recruiter_name},\n\n"
             f"Ekas has confirmed that {chosen_time} works for the introductory "

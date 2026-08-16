@@ -137,6 +137,29 @@ def _retrieval_queries(text: str) -> list[str]:
     return [text]
 
 
+def _retrieval_query(text: str, history: list[dict[str, str]] | None = None) -> str:
+    """Use one prior user turn only when the new message depends on it."""
+    current = text.strip()
+    normalized = " ".join(_tokens_for_context(current))
+    referential = bool(
+        re.search(
+            r"\b(?:it|its|that|this|those|these|they|them|more|application|applications)\b",
+            normalized,
+        )
+    ) or normalized in {"why", "how", "tell me more", "what else"}
+    if not referential:
+        return current
+    prior_users = [
+        item.get("content", "").strip() for item in (history or [])
+        if item.get("role") == "user" and item.get("content", "").strip()
+    ]
+    return f"{prior_users[-1]} {current}".strip() if prior_users else current
+
+
+def _tokens_for_context(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", text.lower())
+
+
 class ReplyAgent:
     """Create channel-aware responses grounded in private career knowledge."""
 
@@ -179,11 +202,7 @@ class ReplyAgent:
         """Generate one reply using shared logic for all Caspian channels."""
         audience = "owner" if channel == "owner" else "recruiter"
         effective_text = _clean_email_message(text) if channel == "email" else text.strip()
-        recent_user_context = " ".join(
-            item["content"] for item in (history or [])[-4:]
-            if item.get("role") == "user"
-        )
-        retrieval_query = f"{recent_user_context} {effective_text}".strip()
+        retrieval_query = _retrieval_query(effective_text, history)
         request_prompt = self._system_prompt
         if self._retriever:
             print(

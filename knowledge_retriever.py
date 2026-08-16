@@ -42,6 +42,7 @@ CAREER_CONTEXT_TERMS = {
 CONCEPTS: dict[str, tuple[str, ...]] = {
     "data analyst": ("data", "analytics", "sql", "python", "statistics", "visualization", "eda"),
     "data analysis": ("analytics", "sql", "python", "statistics", "visualization", "eda"),
+    "analytics": ("data", "sql", "python", "statistics", "visualization", "eda"),
     "product manager": ("product", "leadership", "communication", "ownership", "planning", "users"),
     "product management": ("product", "leadership", "communication", "ownership", "planning", "users"),
     "pm intern": ("product", "leadership", "communication", "ownership", "planning"),
@@ -64,6 +65,16 @@ CONCEPTS: dict[str, tuple[str, ...]] = {
     "education": ("degree", "major", "university", "coursework", "academic"),
 }
 
+TOKEN_ALIASES = {
+    "analyst": "analytics", "analyses": "analytics", "analysis": "analytics",
+    "developed": "build", "developer": "build", "built": "build",
+    "collaborated": "collaboration", "collaborating": "collaboration",
+    "engineer": "engineering", "engineers": "engineering",
+    "interns": "internship", "internships": "internship",
+    "managed": "management", "manager": "management",
+    "projects": "project", "skills": "skill", "technologies": "technology",
+}
+
 
 @dataclass(frozen=True)
 class KnowledgeChunk:
@@ -84,7 +95,39 @@ class RetrievalResult:
 
 
 def _tokens(text: str) -> list[str]:
-    return TOKEN_PATTERN.findall(text.lower())
+    return [TOKEN_ALIASES.get(token, token) for token in TOKEN_PATTERN.findall(text.lower())]
+
+
+def _query_phrases(tokens: list[str]) -> tuple[tuple[str, ...], ...]:
+    """Return meaningful bigrams/trigrams for exact and proximity ranking."""
+    meaningful = [token for token in tokens if token not in STOPWORDS]
+    return tuple(
+        tuple(meaningful[index:index + size])
+        for size in (3, 2)
+        for index in range(len(meaningful) - size + 1)
+    )
+
+
+def _minimum_window(document: list[str], terms: set[str]) -> int | None:
+    """Smallest token window containing all matched query terms."""
+    required = terms & set(document)
+    if len(required) < 2:
+        return None
+    counts: dict[str, int] = {}
+    left = 0
+    best: int | None = None
+    for right, token in enumerate(document):
+        if token in required:
+            counts[token] = counts.get(token, 0) + 1
+        while len(counts) == len(required):
+            best = min(best or len(document), right - left + 1)
+            left_token = document[left]
+            if left_token in counts:
+                counts[left_token] -= 1
+                if counts[left_token] == 0:
+                    del counts[left_token]
+            left += 1
+    return best
 
 
 def _frontmatter(text: str) -> tuple[dict[str, str], str]:
@@ -247,8 +290,9 @@ class KnowledgeRetriever:
         query_set = set(query_terms)
         if not query_set:
             return RetrievalResult("", (), ())
+        phrases = _query_phrases(_tokens(query))
 
-        tokenized = [_tokens(f"{c.heading} {' '.join(c.topics)} {c.text}") for c in chunks]
+        tokenized = [_tokens(c.text) for c in chunks]
         document_frequency = {term: sum(term in set(doc) for doc in tokenized) for term in query_set}
         average_length = sum(map(len, tokenized)) / max(len(tokenized), 1)
         scored: list[tuple[float, KnowledgeChunk]] = []
@@ -260,8 +304,27 @@ class KnowledgeRetriever:
                     continue
                 inverse = math.log(1 + (len(chunks) - document_frequency[term] + 0.5) / (document_frequency[term] + 0.5))
                 score += inverse * frequency * 2.2 / (frequency + 1.2 * (0.25 + 0.75 * len(document) / max(average_length, 1)))
-            title_tokens = set(_tokens(f"{chunk.source} {chunk.heading} {' '.join(chunk.topics)}"))
-            score += 1.5 * len(query_set & title_tokens)
+            heading_tokens = set(_tokens(f"{Path(chunk.source).stem} {chunk.heading}"))
+            topic_tokens = set(_tokens(" ".join(chunk.topics)))
+            score += 2.4 * len(query_set & heading_tokens)
+            score += 1.7 * len(query_set & topic_tokens)
+
+            matched = query_set & set(document)
+            # Reward chunks that answer the whole question rather than repeating
+            # one popular keyword many times.
+            score += 3.0 * (len(matched) / len(query_set))
+            window = _minimum_window(document, query_set)
+            if window is not None:
+                score += 4.0 / (1.0 + math.log(window))
+
+            searchable_tokens = _tokens(
+                f"{Path(chunk.source).stem} {chunk.heading} {' '.join(chunk.topics)} {chunk.text}"
+            )
+            searchable = " ".join(searchable_tokens)
+            for phrase_tokens in phrases:
+                phrase = " ".join(phrase_tokens)
+                if phrase in searchable:
+                    score += 2.0 + 0.8 * len(phrase_tokens)
             topic_text = " ".join(chunk.topics).lower()
             for phrase in CONCEPTS:
                 if phrase in query_lower and phrase in topic_text:
@@ -296,18 +359,36 @@ class KnowledgeRetriever:
             )[:max_files]
         }
 
+        candidates = [
+            (score, chunk) for score, chunk in scored
+            if score >= relative_cutoff and chunk.source in selected_files
+        ]
         selected: list[KnowledgeChunk] = []
         used = 0
-        for score, chunk in scored:
-            if score < relative_cutoff or chunk.source not in selected_files:
-                continue
+        # Maximal marginal relevance: retain relevance while avoiding four
+        # near-duplicate sections that crowd out complementary evidence.
+        while candidates and len(selected) < limit:
+            best_index = 0
+            best_utility = float("-inf")
+            for index, (score, chunk) in enumerate(candidates):
+                chunk_terms = set(_tokens(f"{chunk.heading} {chunk.text}"))
+                redundancy = max(
+                    (
+                        len(chunk_terms & set(_tokens(f"{item.heading} {item.text}")))
+                        / max(len(chunk_terms | set(_tokens(f"{item.heading} {item.text}"))), 1)
+                    )
+                    for item in selected
+                ) if selected else 0.0
+                source_penalty = 0.35 * sum(item.source == chunk.source for item in selected)
+                utility = score - (best_score * 0.32 * redundancy) - source_penalty
+                if utility > best_utility:
+                    best_index, best_utility = index, utility
+            _, chunk = candidates.pop(best_index)
             rendered = self._render(chunk)
             if selected and used + len(rendered) > max_characters:
                 continue
             selected.append(chunk)
             used += len(rendered)
-            if len(selected) == limit:
-                break
         context = "\n\n".join(self._render(chunk) for chunk in selected)
         sources = tuple(dict.fromkeys(f"{chunk.source}#{chunk.heading}" for chunk in selected))
         return RetrievalResult(context, sources, tuple(selected))
